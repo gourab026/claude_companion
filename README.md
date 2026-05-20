@@ -9,7 +9,7 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 ## Features
 
 ### Core
-- Pixel-art animated character with 7 states: idle bob, talking, happy, thinking, sleeping, dancing, dragging
+- Pixel-art animated character with **9 states**: idle bob (with blink), talking, happy, thinking, sleeping, dancing, dragging, surprised, waving
 - AI-powered conversation via local `claude` CLI
 - Persistent speech bubbles (3 styles: speech, thought, shout) — click to dismiss early, duration scales with word count
 - Draggable and always-on-top via `WindowStaysOnTopHint`; never steals focus from the user's active window
@@ -49,6 +49,11 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 - **Sticky notes** — say "remember: X" in chat to save a note; view and delete notes in Control Panel
 - **Twin Pip** — summon a second companion from the menu; they wave, react, and play together
 - **Custom quips** — add your own idle phrases in the Control Panel
+- **Day-of-week awareness** — Monday motivation, Friday celebration, weekend chill mode; fires once per calendar day as an idle event
+- **Autonomous conversation** — at Friend+ level Pip occasionally initiates conversation with a question ("What are you working on?") via WAVING state
+- **SURPRISED reactions** — clipboard and git SHA events flash a SURPRISED face (wide eyes, O-mouth, speed lines) before transitioning to the main reaction
+- **Structured logging** — every session, Claude call (with timing), bubble event, and idle event is logged to `~/.pip-companion.log` with rotation (5 MB × 3 backups)
+- **Graceful shutdown** — SIGTERM/SIGINT saves journal + personality before exit; all timers and keyboard listener are stopped cleanly
 
 ### Bubble Styles
 | Style | Appearance | Used for |
@@ -125,26 +130,36 @@ companion/
 │                      detector (playerctl thread), system stats (psutil thread),
 │                      weather fetch (urllib thread), dream muttering, haiku,
 │                      word of day, daily challenge, screen-time nudge, sticky notes,
-│                      trivia quiz, 20 questions, twin Pip, pomodoro, RPS.
+│                      trivia quiz, 20 questions, twin Pip, pomodoro, RPS,
+│                      day-of-week quips, autonomous prompts, structured logging,
+│                      graceful shutdown (SIGTERM/SIGINT + closeEvent).
+│                      VERSION = "1.0.0"
 │
 ├── character.py       CharacterRenderer — pure drawing class (not a QWidget).
-│                      7-state animation machine: IDLE, TALKING, HAPPY, THINKING,
-│                      SLEEPING, DANCING, DRAGGING.
+│                      9-state animation machine: IDLE (with blink on frame 3),
+│                      TALKING, HAPPY, THINKING, SLEEPING, DANCING, DRAGGING,
+│                      SURPRISED (wide eyes, O-mouth, speed-line effects),
+│                      WAVING (alternating hand-wave at top-right).
 │                      tick_color() lerps body colour toward per-state tint target.
 │                      IDLE frame advances only every 4th tick (~2 fps).
 │
-├── personality.py     Personality — loads/saves personality.json.
+├── personality.py     Personality — loads/saves personality.json atomically
+│                      (write→.tmp→os.replace; backs up corrupt file to .bak).
 │                      Tracks mood, traits, interaction count, topics, mood_log,
 │                      streak, journal, custom_quips, notes, last_word_day,
-│                      last_challenge_day. Provides: time_quip(), log_mood(),
-│                      update_streak(), write_journal_entry(), get_word_of_day(),
-│                      get_daily_challenge(), add_note(), get_notes(), clear_note().
+│                      last_challenge_day, last_day_quip_day.
+│                      Provides: time_quip(), log_mood(), update_streak(),
+│                      write_journal_entry(), get_word_of_day(), get_daily_challenge(),
+│                      get_day_quip(), get_autonomous_prompt(),
+│                      add_note(), get_notes(), clear_note().
 │                      relationship_level / relationship_label properties.
 │                      get_system_prompt() includes familiarity tone per level.
 │
 ├── claude_client.py   ClaudeWorker (QThread) — runs `claude -p` in background.
 │                      Supports --allowedTools and --mcp-config flags.
 │                      Emits response_ready or error_occurred signals.
+│                      Logs to ~/.pip-companion.log via RotatingFileHandler
+│                      (5 MB × 3 backups). NullHandler on root prevents noise.
 │
 ├── bubble.py          BubbleWindow — separate top-level transparent QWidget.
 │                      Three styles: speech (default rounded + triangle tail),
@@ -153,6 +168,7 @@ companion/
 │                      Click to dismiss. Duration scales with word count.
 │                      Text rendered via QRect + AlignVCenter for consistent margins
 │                      (PADDING_H=14 left/right, PADDING_V=12 top/bottom, MAX_WIDTH=300).
+│                      Returns early (no-op) when Pip is minimized.
 │
 ├── control_panel.py   ControlPanel QWidget with 7 tabs:
 │                        Personality    — name, traits, mood, topics, custom quips,
@@ -161,7 +177,8 @@ companion/
 │                        Journal        — last 30 diary entries, newest first
 │                        Notes 📌       — view, delete, clear sticky notes
 │                        Tools & MCP    — web search toggle, MCP server manager
-│                        Settings       — model, idle interval, position reset
+│                        Settings       — model, idle interval, position reset,
+│                                         "Open Log File" button
 │                        About          — help text
 │                      McpServerDialog — add/edit stdio or HTTP MCP servers.
 │
@@ -373,12 +390,62 @@ Pip's body color lerps (3 % per animation tick) toward a per-state target:
 | THINKING | Deep blue-purple |
 | TALKING | Slight teal-purple |
 | DRAGGING | Vivid violet |
+| SURPRISED | Bright violet |
+| WAVING | Friendly blue-purple |
 
 ### Mood History Chart & Daily Journal
 
 - **Mood History** — colour-coded bar chart of today's mood events in the Control Panel
 - **Journal** — one-line diary entry written at shutdown; references recent conversation
   topics once 100+ interactions have accumulated; capped at 365 entries
+
+### New Animation States
+
+**SURPRISED** — wide eyes (5×4 white rect, pupil at top), small O-shaped mouth, speed-line SPARK rects radiating from both sides. Tint: bright violet. Triggered briefly before clipboard reactions and git SHA celebrations.
+
+**WAVING** — alternating hand-wave mark (2×3 LIGHT rect) at the top-right corner of the body, toggling position on alternate frames. Tint: friendly blue-purple. Used by the twin Pip greeting and autonomous conversation prompts.
+
+**IDLE blink** — on frame 3 of the IDLE animation Pip's eyes close to thin lines, giving a natural occasional blink.
+
+### Day-of-Week Awareness
+
+Once per calendar day, an idle event checks `date.today().weekday()` and fires a matching quip:
+- **Monday** → "New week, fresh start! You've got this 💪" (HAPPY)
+- **Friday** → "It's FRIDAY!! Almost there 🎉" (DANCING)
+- **Saturday / Sunday** → "It's the weekend — relax a little? 🌿" (SLEEPING)
+- Other days → no day quip (random pool fires normally)
+
+### Autonomous Conversation
+
+At **Friend+** relationship level (100+ interactions), Pip has a 20 % chance per idle cycle of initiating conversation with a question — "What are you working on?", "How's the project going?", etc. She switches to WAVING state and waits 6 seconds. No Claude call is made; these are pre-written prompts from `get_autonomous_prompt()`.
+
+### Structured Logging
+
+All events are written to **`~/.pip-companion.log`** via a `RotatingFileHandler` (5 MB max, 3 backup files). Logged events include:
+
+| Event | Level |
+|---|---|
+| Session start (version, model) | INFO |
+| Session end | INFO |
+| Claude call started (prompt preview) | INFO |
+| Claude response received (elapsed time) | INFO |
+| Bubble shown (style, text length) | INFO |
+| Idle event fired (event name) | INFO |
+| Stale worker detected | WARNING |
+| Uncaught exception | CRITICAL |
+
+Open the log from **Control Panel → Settings → Open Log File** (uses `xdg-open`).
+
+### Graceful Shutdown
+
+Pip handles `SIGTERM` and `SIGINT` by calling `app.quit()`, which triggers `closeEvent`. That handler:
+1. Writes today's journal entry
+2. Saves `personality.json` atomically (`.tmp` → `os.replace`)
+3. Stops every timer
+4. Stops the `pynput` keyboard listener
+5. Logs "Session ended cleanly"
+
+`personality.json` is also written atomically on every save — a `.tmp` file is written first, then renamed, so a crash can never produce partial JSON. A corrupt file is backed up to `.bak` before falling back to defaults.
 
 ### Active Window Watcher
 
@@ -435,6 +502,7 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 | `notes` | list[obj] | Sticky notes `{text, t}`, capped at 50 |
 | `last_word_day` | ISO date | Date word-of-the-day was last shown |
 | `last_challenge_day` | ISO date | Date daily challenge was last shown |
+| `last_day_quip_day` | ISO date | Date day-of-week quip was last shown |
 | `created` | ISO datetime | When Pip was first run |
 | `last_seen` | ISO datetime | Last save timestamp |
 
@@ -461,6 +529,11 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 
 ### Features
 - [x] **Music detector + song facts** — playerctl/MPRIS track detection; random Claude fact about the song/artist in a thought bubble (30 % chance, 10-min gap)
+- [x] **New animation states** — SURPRISED (wide eyes, speed lines) and WAVING (hand-wave effect); IDLE blink on frame 3
+- [x] **Day-of-week awareness** — Monday/Friday/weekend quips, once per day
+- [x] **Autonomous conversation** — Friend+ Pip initiates chat with a question (WAVING state, 20 % chance per idle cycle)
+- [x] **Structured logging** — RotatingFileHandler to `~/.pip-companion.log`; session, call timing, bubble, idle events logged
+- [x] **Graceful shutdown** — SIGTERM/SIGINT → journal+save+timer stop; atomic personality.json writes; corrupt-file backup
 - [ ] **Voice output** — TTS via `espeak` / `pyttsx3` / `festival` for spoken responses
 - [ ] **Voice input** — microphone button using `SpeechRecognition` or `whisper`
 - [x] **Triple-click to minimize** — shrinks to a 20×20 dot; triple-click to restore
@@ -499,7 +572,9 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 - [ ] **Background worker pool** — reuse a single `QThread` instead of a new one per request
 - [ ] **Subprocess warm-up** — keep Claude process warm to avoid cold-start latency
 - [ ] **Debounce idle reschedule** — avoid restarting `_idle_timer` on rapid settings changes
-- [x] **Bubble text margins** — QRect-based drawText with AlignVCenter; consistent PADDING_H/V; MAX_WIDTH 300
+- [x] **Bubble text margins** — QRect-based drawText with AlignVCenter; consistent PADDING_H/V; MAX_WIDTH 300; `default=0` guard against empty-list crash
+- [x] **Worker lifecycle fixes** — stale signals disconnected before new worker; `quit()/wait()` on clear history; `destroyed` signal clears stale panel reference
+- [x] **Minimized-state guards** — `_show_bubble` no-ops while minimized; `_return_timer`/`_dream_timer` stopped; drag skipped while minimized
 - [ ] **Bubble text caching** — cache laid-out lines so `_update_geometry` only re-runs on text change
 - [ ] **Reduce QSettings writes** — batch position saves; currently writes on every mouseRelease
 - [ ] **Lazy-import control panel** — import `control_panel.py` only when first opened
