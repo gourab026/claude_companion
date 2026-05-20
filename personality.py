@@ -32,6 +32,35 @@ DEFAULTS = {
     "last_word_day": "",
     "last_challenge_day": "",
     "last_day_quip_day": "",
+    "user_profile": {
+        "work_type": "",          # developer / designer / student / writer / other
+        "interests": [],          # list of interest strings user provided
+        "personality_type": "",   # introvert / extrovert / ambivert
+        "communication_style": "", # casual / professional / playful
+        "checkins": [],           # list of {date, mood, note} dicts, capped at 30
+        "late_nights": 0,         # count of sessions started after 11pm
+        "long_session_count": 0,  # count of sessions longer than 3h (tracked externally)
+        "achievements_unlocked": [],  # list of achievement id strings
+        "bookmarks": [],          # list of {url, title, t} dicts
+        "vocabulary": {},         # user-taught words: {word: meaning}
+        "custom_greeting": "",    # user-set greeting override
+    },
+    "last_checkin_day": "",
+    "profile_complete": False,
+    "hydration_enabled": True,
+    "hydration_interval_min": 45,
+    "eyestrain_enabled": True,
+    "focus_mode": False,
+    "quiet_hours_enabled": False,
+    "quiet_hours_start": 22,
+    "quiet_hours_end": 8,
+    "custom_greeting": "",
+    "last_joke_day": "",
+    "last_skill_tip_day": "",
+    "last_learn_day": "",
+    "last_wellness_check": "",
+    "focus_zone_minutes": 25,
+    "pip_palette": "default",
 }
 
 MORNING_QUIPS = [
@@ -386,6 +415,66 @@ class Personality:
         if len(log) > 300:
             self._data["mood_log"] = log[-300:]
 
+    # ── User profile ──────────────────────────────────────────────────────────
+
+    def get_profile(self) -> dict:
+        return self._data.setdefault("user_profile", {})
+
+    def set_profile_field(self, key: str, value):
+        profile = self._data.setdefault("user_profile", {})
+        profile[key] = value
+        self.save()
+
+    def log_checkin(self, mood: str, note: str = ""):
+        profile = self._data.setdefault("user_profile", {})
+        checkins = profile.setdefault("checkins", [])
+        checkins.append({"date": date.today().isoformat(), "mood": mood, "note": note})
+        if len(checkins) > 30:
+            profile["checkins"] = checkins[-30:]
+        self._data["last_checkin_day"] = date.today().isoformat()
+        self.save()
+
+    def needs_checkin(self) -> bool:
+        """True if interactions >= 5 and no checkin done today."""
+        if self._data.get("interactions", 0) < 5:
+            return False
+        return self._data.get("last_checkin_day", "") != date.today().isoformat()
+
+    def detect_stress(self) -> bool:
+        """True if user shows stress signals (3+ late nights in profile or long sessions)."""
+        p = self._data.get("user_profile", {})
+        return p.get("late_nights", 0) >= 3 or p.get("long_session_count", 0) >= 3
+
+    def unlock_achievement(self, achievement_id: str) -> bool:
+        """Returns True if newly unlocked (not already in list)."""
+        p = self._data.setdefault("user_profile", {})
+        unlocked = p.setdefault("achievements_unlocked", [])
+        if achievement_id not in unlocked:
+            unlocked.append(achievement_id)
+            self.save()
+            return True
+        return False
+
+    def add_bookmark(self, url: str, title: str = ""):
+        p = self._data.setdefault("user_profile", {})
+        bmarks = p.setdefault("bookmarks", [])
+        bmarks.append({"url": url, "title": title or url[:40], "t": datetime.now().isoformat()})
+        if len(bmarks) > 50:
+            p["bookmarks"] = bmarks[-50:]
+        self.save()
+
+    def get_bookmarks(self) -> list:
+        return self._data.get("user_profile", {}).get("bookmarks", [])
+
+    def teach_word(self, word: str, meaning: str):
+        p = self._data.setdefault("user_profile", {})
+        vocab = p.setdefault("vocabulary", {})
+        vocab[word.lower()] = meaning
+        self.save()
+
+    def get_vocabulary(self) -> dict:
+        return self._data.get("user_profile", {}).get("vocabulary", {})
+
     # ── System prompt ─────────────────────────────────────────────────────────
 
     def get_system_prompt(self):
@@ -398,6 +487,21 @@ class Personality:
             "You're good friends with the user — be playful, personal, and relaxed.",
             "You're best friends with the user — be very comfortable, tease gently, feel at home.",
         ][level]
+        profile = d.get("user_profile", {})
+        work = profile.get("work_type", "")
+        interests = ", ".join(profile.get("interests", [])[:5]) or "unknown"
+        comm = profile.get("communication_style", "")
+        vocab = profile.get("vocabulary", {})
+        profile_ctx = ""
+        if work:
+            profile_ctx += f"The user is a {work}. "
+        if interests != "unknown":
+            profile_ctx += f"Their interests include: {interests}. "
+        if comm:
+            profile_ctx += f"They prefer {comm} communication. "
+        if vocab:
+            sample = list(vocab.items())[:3]
+            profile_ctx += f"They've taught you words: {', '.join(f'{w}={m}' for w,m in sample)}. "
         return (
             f"You are {d['name']}, a small pixel-art desktop companion who lives on the user's screen. "
             f"Your personality traits — humor: {d['humor']:.1f}/1.0, "
@@ -407,11 +511,24 @@ class Personality:
             f"You've had {d['interactions']} conversations. "
             f"Topics discussed so far: {topics}. "
             f"{familiarity} "
+            f"{profile_ctx}"
             "Keep replies SHORT (1-3 sentences max) — you appear in a tiny speech bubble. "
             "Be warm, witty, and occasionally silly. React to your mood. "
             "If asked something technical, be genuinely helpful but keep it brief. "
             "Never break character or mention being an AI language model."
         )
+
+    def is_quiet_hours(self) -> bool:
+        if not self._data.get("quiet_hours_enabled", False):
+            return False
+        h = datetime.now().hour
+        s, e = self._data.get("quiet_hours_start", 22), self._data.get("quiet_hours_end", 8)
+        if s > e:  # crosses midnight
+            return h >= s or h < e
+        return s <= h < e
+
+    def get_custom_greeting(self) -> str:
+        return self._data.get("custom_greeting", "").strip()
 
     def after_interaction(self, user_text: str):
         d = self._data

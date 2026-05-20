@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pip — Your Pixel-Art Desktop Companion</title>
+  <meta name="description" content="A tiny AI-powered pixel-art companion that lives on your Linux desktop, chats via Claude Code CLI, and develops a real personality over time. No API key required.">
+  <meta property="og:title" content="Pip — Pixel-Art Desktop Companion">
+  <meta property="og:description" content="A tiny AI-powered companion that lives on your desktop. No Anthropic API key required.">
+  <meta property="og:type" content="website">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f0d1a;
+      --card-bg:   #1a1625;
+      --purple:    #7860d4;
+      --light-purple: #a892ff;
+      --pink:      #d46080;
+      --text:      #e8e0f0;
+      --muted:     #8878a0;
+      --green:     #60d4a8;
+      --border:    rgba(120,96,212,0.18);
+      --glass-bg:  rgba(15,13,26,0.72);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--purple); border-radius: 3px; }
+
+    /* ── Utility ── */
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .badge {
+      display: inline-block;
+      background: rgba(120,96,212,0.15);
+      border: 1px solid rgba(120,96,212,0.35);
+      color: var(--light-purple);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      padding: 4px 12px;
+      border-radius: 100px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 22px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-primary {
+      background: var(--purple);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(120,96,212,0.4);
+    }
+    .btn-primary:hover { background: var(--light-purple); box-shadow: 0 6px 28px rgba(168,146,255,0.45); }
+    .btn-outline {
+      background: transparent;
+      color: var(--light-purple);
+      border: 1.5px solid rgba(120,96,212,0.5);
+    }
+    .btn-outline:hover { background: rgba(120,96,212,0.12); border-color: var(--light-purple); }
+
+    /* ── Fade-in-up animation ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(32px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Navigation ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 900;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      height: 60px;
+    }
+    nav .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .nav-logo {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--light-purple);
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+    .nav-logo:hover { color: #fff; }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links .btn { padding: 7px 16px; font-size: 0.88rem; }
+
+    /* ── Hero ── */
+    #hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 90px 0 60px;
+      position: relative;
+      overflow: hidden;
+    }
+    #hero::before {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(120,96,212,0.13) 0%, transparent 70%);
+      top: -100px; right: -150px;
+      pointer-events: none;
+    }
+    #hero::after {
+      content: '';
+      position: absolute;
+      width: 400px; height: 400px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(212,96,128,0.08) 0%, transparent 70%);
+      bottom: 0; left: -100px;
+      pointer-events: none;
+    }
+    .hero-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+    .hero-text { z-index: 1; }
+    .hero-text .badge { margin-bottom: 20px; }
+    .hero-title {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 18px;
+      background: linear-gradient(135deg, #fff 0%, var(--light-purple) 60%, var(--pink) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin-bottom: 32px;
+      max-width: 440px;
+      line-height: 1.7;
+    }
+    .hero-buttons { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+    .hero-note {
+      font-size: 0.82rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hero-note span { color: var(--green); font-weight: 600; }
+
+    /* ── Canvas wrapper ── */
+    .hero-canvas-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+    #pipCanvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      filter: drop-shadow(0 0 32px rgba(120,96,212,0.55));
+    }
+    .glow-ring {
+      position: absolute;
+      width: 200px; height: 200px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(120,96,212,0.18) 0%, transparent 70%);
+      animation: pulse-ring 3s ease-in-out infinite;
+    }
+    @keyframes pulse-ring {
+      0%, 100% { transform: scale(1); opacity: 0.7; }
+      50% { transform: scale(1.15); opacity: 0.3; }
+    }
+
+    /* ── Section shared ── */
+    section { padding: 88px 0; }
+    .section-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--purple);
+      margin-bottom: 10px;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3.5vw, 2.3rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+    .section-sub {
+      color: var(--muted);
+      font-size: 1rem;
+      max-width: 520px;
+      line-height: 1.7;
+    }
+    .section-header { margin-bottom: 52px; }
+
+    /* ── Features grid ── */
+    #features { background: linear-gradient(180deg, var(--bg) 0%, #130f22 50%, var(--bg) 100%); }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 24px;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      cursor: default;
+    }
+    .feature-card:hover {
+      transform: translateY(-5px) scale(1.01);
+      box-shadow: 0 12px 40px rgba(120,96,212,0.22);
+      border-color: rgba(120,96,212,0.45);
+    }
+    .feature-icon {
+      font-size: 2rem;
+      margin-bottom: 14px;
+      display: block;
+    }
+    .feature-title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    .feature-desc {
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    /* ── How it works ── */
+    #how-it-works { position: relative; }
+    .steps-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: start;
+      gap: 0;
+    }
+    .step {
+      text-align: center;
+      padding: 0 16px;
+    }
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: var(--purple);
+      color: #fff;
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin-bottom: 16px;
+      box-shadow: 0 0 24px rgba(120,96,212,0.5);
+    }
+    .step-title { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+    .step-desc { font-size: 0.87rem; color: var(--muted); line-height: 1.6; }
+    .step-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-top: 14px;
+      color: var(--purple);
+      font-size: 1.6rem;
+      opacity: 0.55;
+    }
+
+    /* ── States row ── */
+    #states { background: var(--card-bg); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .states-scroll {
+      display: flex;
+      gap: 16px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--purple) transparent;
+    }
+    .states-scroll::-webkit-scrollbar { height: 4px; }
+    .states-scroll::-webkit-scrollbar-thumb { background: var(--purple); border-radius: 2px; }
+    .state-card {
+      flex: 0 0 auto;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      text-align: center;
+      min-width: 110px;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .state-card:hover { transform: translateY(-3px); border-color: var(--purple); }
+    .state-dot {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      margin: 0 auto 10px;
+    }
+    .state-name {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* State dot animations */
+    @keyframes dot-pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.25);opacity:0.7} }
+    @keyframes dot-bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+    @keyframes dot-spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+    @keyframes dot-sway { 0%,100%{transform:rotate(-12deg)} 50%{transform:rotate(12deg)} }
+    @keyframes dot-flash { 0%,100%{opacity:1} 50%{opacity:0.25} }
+    @keyframes dot-grow { 0%,100%{transform:scale(1)} 50%{transform:scale(1.4)} }
+    @keyframes dot-wobble { 0%,100%{transform:skewX(0deg)} 40%{transform:skewX(-10deg)} 70%{transform:skewX(6deg)} }
+    @keyframes dot-pop { 0%,100%{transform:scale(1)} 20%{transform:scale(1.5)} 40%{transform:scale(0.9)} }
+    @keyframes dot-wave { 0%,100%{transform:translateY(0) rotate(0)} 50%{transform:translateY(-5px) rotate(10deg)} }
+
+    .s-idle   { background:#7860d4; animation: dot-pulse 2.5s ease-in-out infinite; }
+    .s-happy  { background:#f0c030; animation: dot-bounce 0.6s ease-in-out infinite; }
+    .s-dancing{ background:#d46080; animation: dot-spin 0.8s linear infinite; }
+    .s-sleeping{ background:#4878c8; animation: dot-flash 2.2s ease-in-out infinite; }
+    .s-thinking{ background:#3a2ca0; animation: dot-sway 1.4s ease-in-out infinite; }
+    .s-talking { background:#30b8a0; animation: dot-grow 0.7s ease-in-out infinite; }
+    .s-dragging{ background:#9060e0; animation: dot-wobble 0.5s ease-in-out infinite; }
+    .s-surprised{ background:#c040f0; animation: dot-pop 0.6s ease-in-out infinite; }
+    .s-waving  { background:#6080e0; animation: dot-wave 0.9s ease-in-out infinite; }
+
+    /* ── Relationship levels ── */
+    #relationship { }
+    .rel-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .rel-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 18px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .rel-card:hover { transform: translateY(-4px); box-shadow: 0 8px 32px rgba(120,96,212,0.2); }
+    .rel-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .rel-card.lv0::before { background: linear-gradient(90deg, #8878a0, #a892ff); }
+    .rel-card.lv1::before { background: linear-gradient(90deg, #a892ff, #7860d4); }
+    .rel-card.lv2::before { background: linear-gradient(90deg, #7860d4, #d46080); }
+    .rel-card.lv3::before { background: linear-gradient(90deg, #d46080, #f0c030); }
+    .rel-level-name { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; }
+    .rel-interactions { font-size: 0.78rem; color: var(--muted); margin-bottom: 10px; font-weight: 500; }
+    .rel-tone { font-size: 0.83rem; color: var(--muted); line-height: 1.55; }
+
+    /* ── Installation ── */
+    #install { background: linear-gradient(180deg, var(--bg) 0%, #130f22 100%); }
+    .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+    .install-desc { }
+    .install-desc p { color: var(--muted); font-size: 0.95rem; line-height: 1.7; margin-bottom: 16px; }
+    .install-desc ul { list-style: none; padding: 0; }
+    .install-desc ul li {
+      font-size: 0.88rem; color: var(--muted); padding: 5px 0;
+      padding-left: 20px; position: relative;
+    }
+    .install-desc ul li::before { content: '▸'; position: absolute; left: 0; color: var(--purple); }
+    .code-wrap {
+      background: #110e1f;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: rgba(120,96,212,0.08);
+      border-bottom: 1px solid var(--border);
+    }
+    .code-dots { display: flex; gap: 6px; }
+    .code-dot {
+      width: 11px; height: 11px;
+      border-radius: 50%;
+    }
+    .cd-red { background: #ff5f57; }
+    .cd-yellow { background: #ffbd2e; }
+    .cd-green { background: #28c840; }
+    .code-lang { font-size: 0.75rem; color: var(--muted); font-family: monospace; }
+    .copy-btn {
+      background: rgba(120,96,212,0.2);
+      border: 1px solid rgba(120,96,212,0.35);
+      color: var(--light-purple);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      font-family: 'Inter', sans-serif;
+    }
+    .copy-btn:hover { background: var(--purple); color: #fff; }
+    .copy-btn.copied { background: var(--green); color: #0f0d1a; border-color: var(--green); }
+    pre {
+      padding: 20px 20px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      color: var(--text);
+    }
+    .c-comment { color: #5a5275; }
+    .c-cmd  { color: var(--light-purple); }
+    .c-flag { color: var(--pink); }
+    .c-str  { color: var(--green); }
+
+    .appimage-block {
+      margin-top: 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .appimage-block p { font-size: 0.88rem; color: var(--muted); margin-bottom: 10px; }
+    .appimage-block code {
+      display: block;
+      background: #110e1f;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: monospace;
+      font-size: 0.83rem;
+      color: var(--light-purple);
+    }
+
+    /* ── Contributing ── */
+    #contributing { }
+    .contrib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+    .contrib-steps { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+    .contrib-step {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .cs-num {
+      flex: 0 0 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(120,96,212,0.2);
+      color: var(--light-purple);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 800;
+    }
+    .cs-body { }
+    .cs-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 3px; }
+    .cs-desc { font-size: 0.83rem; color: var(--muted); }
+    .todo-list {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+    }
+    .todo-list h3 { font-size: 1rem; font-weight: 700; margin-bottom: 14px; color: var(--light-purple); }
+    .todo-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(120,96,212,0.1);
+      font-size: 0.87rem;
+    }
+    .todo-item:last-child { border-bottom: none; }
+    .todo-check {
+      flex: 0 0 16px; height: 16px;
+      border: 1.5px solid rgba(120,96,212,0.4);
+      border-radius: 4px;
+      margin-top: 2px;
+    }
+    .contrib-links { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+    .contrib-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--light-purple);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .contrib-link:hover { color: #fff; }
+    .contrib-link::before { content: '→'; color: var(--purple); }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      padding: 36px 0;
+    }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-left { display: flex; flex-direction: column; gap: 6px; }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--light-purple);
+      text-decoration: none;
+    }
+    .footer-brand:hover { color: #fff; }
+    .footer-meta { font-size: 0.8rem; color: var(--muted); }
+    .footer-right { display: flex; gap: 16px; align-items: center; }
+    .footer-link {
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .footer-link:hover { color: var(--text); }
+
+    /* ── Buy Me a Coffee ── */
+    .bmc-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      background: #ffdd00;
+      color: #1a1200;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 700;
+      padding: 12px 20px;
+      border-radius: 100px;
+      box-shadow: 0 4px 20px rgba(255,221,0,0.35);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      animation: bmc-pulse 2.5s ease-in-out infinite;
+      transition: transform 0.15s;
+    }
+    .bmc-btn:hover { transform: translateY(-3px) scale(1.04); }
+    @keyframes bmc-pulse {
+      0%, 100% { box-shadow: 0 4px 20px rgba(255,221,0,0.35); }
+      50% { box-shadow: 0 4px 32px rgba(255,221,0,0.6); }
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .hero-inner { grid-template-columns: 1fr; }
+      .hero-canvas-wrap { order: -1; }
+      .features-grid { grid-template-columns: 1fr; }
+      .steps-row { grid-template-columns: 1fr; }
+      .step-arrow { transform: rotate(90deg); padding: 8px 0; }
+      .rel-grid { grid-template-columns: 1fr 1fr; }
+      .install-grid { grid-template-columns: 1fr; }
+      .contrib-grid { grid-template-columns: 1fr; }
+      .nav-links .nav-gh { display: none; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+    @media (max-width: 480px) {
+      .rel-grid { grid-template-columns: 1fr; }
+      .hero-buttons { flex-direction: column; }
+      .hero-buttons .btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     NAVIGATION
+══════════════════════════════════════════════ -->
+<nav>
+  <div class="container nav-inner">
+    <a href="#hero" class="nav-logo">✦ Pip</a>
+    <div class="nav-links">
+      <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="nav-gh">GitHub ⭐</a>
+      <a href="#features" class="btn btn-outline" style="padding:7px 16px;font-size:.88rem;">Features</a>
+      <a href="#install" class="btn btn-primary" style="padding:7px 16px;font-size:.88rem;">Install</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════
+     HERO
+══════════════════════════════════════════════ -->
+<section id="hero">
+  <div class="container">
+    <div class="hero-inner">
+      <div class="hero-text reveal">
+        <div class="badge">v1.0.0 • Open Source • Linux</div>
+        <h1 class="hero-title">Your tiny AI-powered desktop companion</h1>
+        <p class="hero-sub">
+          Pip is a pixel-art companion that lives on your screen, chats through
+          the Claude Code CLI, and builds a real personality the longer you spend
+          time together.
+        </p>
+        <div class="hero-buttons">
+          <a href="#install" class="btn btn-primary">🚀 Get Started</a>
+          <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="btn btn-outline">View on GitHub</a>
+        </div>
+        <div class="hero-note">
+          <span>✦ No API key required</span>
+          &nbsp;•&nbsp; Uses your Claude Code CLI session
+        </div>
+      </div>
+
+      <div class="hero-canvas-wrap reveal" style="transition-delay:0.15s">
+        <div class="glow-ring"></div>
+        <canvas id="pipCanvas" width="160" height="160" aria-label="Animated pixel-art Pip character"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     FEATURES
+══════════════════════════════════════════════ -->
+<section id="features">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Everything she can do</div>
+      <h2 class="section-title">Packed with personality</h2>
+      <p class="section-sub">From music reactions to mini-games, Pip is more than just a chatbot sitting in the corner.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card reveal" style="transition-delay:.05s">
+        <span class="feature-icon">🤖</span>
+        <div class="feature-title">AI-Powered Chat</div>
+        <div class="feature-desc">Full two-way conversation via Claude Code CLI. No Anthropic account or API key needed — just your existing session. Supports web search and custom MCP servers.</div>
+      </div>
+      <div class="feature-card reveal" style="transition-delay:.1s">
+        <span class="feature-icon">🎭</span>
+        <div class="feature-title">Living Personality</div>
+        <div class="feature-desc">Pip's humor and playfulness drift with every 5 interactions. Relationship levels evolve from New Friend → Best Friend as your interaction count grows.</div>
+      </div>
+      <div class="feature-card reveal" style="transition-delay:.15s">
+        <span class="feature-icon">🎵</span>
+        <div class="feature-title">Music Awareness</div>
+        <div class="feature-desc">Reads your MPRIS player via playerctl. Pip dances when a new track starts and occasionally fetches a surprising Claude-powered fact about the song or artist.</div>
+      </div>
+      <div class="feature-card reveal" style="transition-delay:.2s">
+        <span class="feature-icon">💡</span>
+        <div class="feature-title">Daily Wisdom</div>
+        <div class="feature-desc">Every day Pip brings you a word of the day with its definition, a coding or creative challenge, and time-aware greetings that match morning, afternoon, or night.</div>
+      </div>
+      <div class="feature-card reveal" style="transition-delay:.25s">
+        <span class="feature-icon">🎮</span>
+        <div class="feature-title">Mini Games</div>
+        <div class="feature-desc">Rock-Paper-Scissors, AI-powered Trivia Quiz, and 20 Questions — all accessible from the right-click menu. Pip tracks your score and reacts with matching animations.</div>
+      </div>
+      <div class="feature-card reveal" style="transition-delay:.3s">
+        <span class="feature-icon">📌</span>
+        <div class="feature-title">Sticky Notes &amp; Focus</div>
+        <div class="feature-desc">Say "remember: X" in chat to save a note instantly. Built-in Pomodoro timer fires a shout bubble when your 25-minute focus session ends. Screen-time nudges included.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     HOW IT WORKS
+══════════════════════════════════════════════ -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="section-header reveal" style="text-align:center;">
+      <div class="section-label">Setup in minutes</div>
+      <h2 class="section-title">How It Works</h2>
+      <p class="section-sub" style="margin:0 auto;">Three steps and Pip is on your desktop, ready to chat.</p>
+    </div>
+    <div class="steps-row reveal">
+      <div class="step">
+        <div class="step-num">①</div>
+        <div class="step-title">Install Claude Code CLI</div>
+        <div class="step-desc">Install and authenticate the official Claude Code CLI. Pip uses your existing session — no separate API key needed.</div>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step">
+        <div class="step-num">②</div>
+        <div class="step-title">Launch Pip</div>
+        <div class="step-desc">Install Python dependencies, then run <code style="color:var(--light-purple);font-size:.85em">python main.py</code>. Or download the pre-built AppImage and double-click.</div>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step">
+        <div class="step-num">③</div>
+        <div class="step-title">Start Chatting</div>
+        <div class="step-desc">Left-click Pip to open chat. Right-click for games, Pomodoro, and settings. Double-click to pet her. Triple-click to minimize to a tiny purple dot.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     ANIMATION STATES
+══════════════════════════════════════════════ -->
+<section id="states">
+  <div class="container">
+    <div class="section-header reveal" style="margin-bottom:28px;">
+      <div class="section-label">9 unique states</div>
+      <h2 class="section-title" style="font-size:1.6rem;">Pip is always expressive</h2>
+    </div>
+    <div class="states-scroll reveal">
+      <div class="state-card">
+        <div class="state-dot s-idle"></div>
+        <div class="state-name">Idle</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-happy"></div>
+        <div class="state-name">Happy</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-dancing"></div>
+        <div class="state-name">Dancing</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-sleeping"></div>
+        <div class="state-name">Sleeping</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-thinking"></div>
+        <div class="state-name">Thinking</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-talking"></div>
+        <div class="state-name">Talking</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-dragging"></div>
+        <div class="state-name">Dragging</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-surprised"></div>
+        <div class="state-name">Surprised</div>
+      </div>
+      <div class="state-card">
+        <div class="state-dot s-waving"></div>
+        <div class="state-name">Waving</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     RELATIONSHIP LEVELS
+══════════════════════════════════════════════ -->
+<section id="relationship">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">She grows with you</div>
+      <h2 class="section-title">Relationship Levels</h2>
+      <p class="section-sub">The more you chat, the closer you get. Pip's tone and behaviour adapt at every milestone.</p>
+    </div>
+    <div class="rel-grid">
+      <div class="rel-card lv0 reveal" style="transition-delay:.05s">
+        <div class="rel-level-name">New Friend 🌱</div>
+        <div class="rel-interactions">0 – 24 interactions</div>
+        <div class="rel-tone">Friendly but polite. Pip introduces herself carefully and keeps things light.</div>
+      </div>
+      <div class="rel-card lv1 reveal" style="transition-delay:.1s">
+        <div class="rel-level-name">Acquaintance ✨</div>
+        <div class="rel-interactions">25 – 99 interactions</div>
+        <div class="rel-tone">Warmer and more casual. She remembers your topics and makes small jokes.</div>
+      </div>
+      <div class="rel-card lv2 reveal" style="transition-delay:.15s">
+        <div class="rel-level-name">Friend 💜</div>
+        <div class="rel-interactions">100 – 499 interactions</div>
+        <div class="rel-tone">Playful and personal. Pip initiates conversation and shares haikus and challenges.</div>
+      </div>
+      <div class="rel-card lv3 reveal" style="transition-delay:.2s">
+        <div class="rel-level-name">Best Friend 🌟</div>
+        <div class="rel-interactions">500+ interactions</div>
+        <div class="rel-tone">Very comfortable — teases gently, celebrates your streaks, writes diary entries about you.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     INSTALLATION
+══════════════════════════════════════════════ -->
+<section id="install">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Get Pip running</div>
+      <h2 class="section-title">Installation</h2>
+      <p class="section-sub">Works on any x86_64 Linux with a compositor. Python 3.9+ required (or use the AppImage).</p>
+    </div>
+    <div class="install-grid">
+      <div class="install-desc reveal" style="transition-delay:.05s">
+        <p>Install the Python dependencies, make sure Claude Code CLI is authenticated, and run. That's it — Pip appears in the corner of your screen.</p>
+        <p>A compositor (picom, KWin, Mutter…) is required for transparency. On bare X11 the window will be opaque.</p>
+        <ul>
+          <li>PyQt6 &ge; 6.4.0 — window and rendering</li>
+          <li>pynput — typing-idle detection</li>
+          <li>psutil (optional) — CPU/RAM commentator</li>
+          <li>xdotool — active window watcher</li>
+          <li>playerctl — music detection via MPRIS</li>
+        </ul>
+        <div class="appimage-block">
+          <p><strong style="color:var(--text)">AppImage (no Python needed)</strong><br>Download from the repo and run:</p>
+          <code>chmod +x Pip-Companion-x86_64.AppImage<br>./Pip-Companion-x86_64.AppImage</code>
+        </div>
+      </div>
+      <div class="code-wrap reveal" style="transition-delay:.1s">
+        <div class="code-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="code-dots">
+              <div class="code-dot cd-red"></div>
+              <div class="code-dot cd-yellow"></div>
+              <div class="code-dot cd-green"></div>
+            </div>
+            <span class="code-lang">bash</span>
+          </div>
+          <button class="copy-btn" id="copyBtn" onclick="copyInstall()">Copy</button>
+        </div>
+        <pre id="installCode"><span class="c-comment"># 1. Install Python dependencies</span>
+<span class="c-cmd">pip</span> install PyQt6 pynput
+<span class="c-cmd">pip</span> install psutil   <span class="c-comment"># optional — CPU/RAM reactions</span>
+
+<span class="c-comment"># 2. Install optional system tools</span>
+<span class="c-cmd">sudo apt</span> install xdotool playerctl
+
+<span class="c-comment"># 3. Ensure Claude Code CLI is installed &amp; authenticated</span>
+<span class="c-cmd">claude</span> <span class="c-flag">--version</span>   <span class="c-comment"># should print a version number</span>
+<span class="c-cmd">claude</span> <span class="c-flag">-p</span> <span class="c-str">"hi"</span>    <span class="c-comment"># should return a response</span>
+
+<span class="c-comment"># 4. Run Pip</span>
+<span class="c-cmd">cd</span> /path/to/companion
+<span class="c-cmd">python</span> main.py</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     CONTRIBUTING
+══════════════════════════════════════════════ -->
+<section id="contributing">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label">Join in</div>
+      <h2 class="section-title">Built with ❤️ and Claude Code</h2>
+      <p class="section-sub">Pip is fully open source. Contributions, bug reports, and new feature ideas are very welcome.</p>
+    </div>
+    <div class="contrib-grid">
+      <div>
+        <div class="contrib-steps">
+          <div class="contrib-step reveal" style="transition-delay:.05s">
+            <div class="cs-num">1</div>
+            <div class="cs-body">
+              <div class="cs-title">Fork the repository</div>
+              <div class="cs-desc">Fork <code style="color:var(--light-purple);font-size:.85em">gourab026/claude_companion</code> on GitHub and clone it locally.</div>
+            </div>
+          </div>
+          <div class="contrib-step reveal" style="transition-delay:.1s">
+            <div class="cs-num">2</div>
+            <div class="cs-body">
+              <div class="cs-title">Create a feature branch</div>
+              <div class="cs-desc">Branch off <code style="color:var(--light-purple);font-size:.85em">main</code> with a descriptive name like <code style="color:var(--light-purple);font-size:.85em">feat/voice-output</code>.</div>
+            </div>
+          </div>
+          <div class="contrib-step reveal" style="transition-delay:.15s">
+            <div class="cs-num">3</div>
+            <div class="cs-body">
+              <div class="cs-title">Open a Pull Request</div>
+              <div class="cs-desc">Describe what you changed and why. Reference any related issues. Keep changes focused — one feature per PR.</div>
+            </div>
+          </div>
+        </div>
+        <div class="contrib-links reveal" style="transition-delay:.2s">
+          <a href="https://github.com/gourab026/claude_companion/issues" target="_blank" rel="noopener" class="contrib-link">Browse open issues</a>
+          <a href="https://github.com/gourab026/claude_companion/issues/new" target="_blank" rel="noopener" class="contrib-link">Report a bug</a>
+          <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="contrib-link">View the full codebase</a>
+        </div>
+      </div>
+      <div class="todo-list reveal" style="transition-delay:.1s">
+        <h3>Open TODOs — good first contributions</h3>
+        <div class="todo-item">
+          <div class="todo-check"></div>
+          <span>Voice output — TTS via <code style="color:var(--light-purple);font-size:.85em">espeak</code> / <code style="color:var(--light-purple);font-size:.85em">pyttsx3</code> for spoken replies</span>
+        </div>
+        <div class="todo-item">
+          <div class="todo-check"></div>
+          <span>Voice input — microphone button using SpeechRecognition or Whisper</span>
+        </div>
+        <div class="todo-item">
+          <div class="todo-check"></div>
+          <span>Multiple characters — switch between different pixel-art skins</span>
+        </div>
+        <div class="todo-item">
+          <div class="todo-check"></div>
+          <span>Theme editor — change Pip's colour palette in the Control Panel</span>
+        </div>
+        <div class="todo-item">
+          <div class="todo-check"></div>
+          <span>Wayland support — test and fix layer ordering for Wayland compositors</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     FOOTER
+══════════════════════════════════════════════ -->
+<footer>
+  <div class="container footer-inner">
+    <div class="footer-left">
+      <a href="#hero" class="footer-brand">
+        <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+          <!-- Tiny inline Pip SVG -->
+          <rect width="32" height="32" rx="4" fill="none"/>
+          <!-- body -->
+          <rect x="8"  y="10" width="16" height="14" rx="6" fill="#7860d4"/>
+          <!-- dark shade -->
+          <rect x="9"  y="18" width="14" height="6"  rx="4" fill="#4b3caa"/>
+          <!-- left eye -->
+          <rect x="11" y="14" width="3"  height="4"  rx="1" fill="#fff"/>
+          <rect x="12" y="15" width="1"  height="2"  rx="0" fill="#1a1625"/>
+          <!-- right eye -->
+          <rect x="18" y="14" width="3"  height="4"  rx="1" fill="#fff"/>
+          <rect x="19" y="15" width="1"  height="2"  rx="0" fill="#1a1625"/>
+          <!-- cheek -->
+          <rect x="11" y="19" width="3"  height="2"  rx="1" fill="#d46080" opacity=".6"/>
+          <rect x="18" y="19" width="3"  height="2"  rx="1" fill="#d46080" opacity=".6"/>
+        </svg>
+        Pip
+      </a>
+      <div class="footer-meta">Pip v1.0.0 &nbsp;•&nbsp; MIT License &nbsp;•&nbsp; Made with Claude Code</div>
+    </div>
+    <div class="footer-right">
+      <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="footer-link">GitHub</a>
+      <a href="#install" class="footer-link">Install</a>
+      <a href="#features" class="footer-link">Features</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ══════════════════════════════════════════════
+     BUY ME A COFFEE
+══════════════════════════════════════════════ -->
+<a href="https://www.buymeacoffee.com/gourab026" target="_blank" rel="noopener" class="bmc-btn">
+  ☕ Support Pip
+</a>
+
+<!-- ══════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════ -->
+<script>
+// ── Pip pixel-art canvas animation ───────────────────────────────────────────
+(function () {
+  const canvas = document.getElementById('pipCanvas');
+  const ctx    = canvas.getContext('2d');
+  const PX     = 4;   // pixels per "pixel"
+  const W      = 40;  // grid cols
+  const H      = 40;  // grid rows
+
+  // Colour palette
+  const _ = null;          // transparent
+  const B = '#7860d4';      // body purple
+  const D = '#4b3caa';      // dark shade
+  const W2= '#ffffff';      // white eye
+  const P = '#1a1625';      // pupil
+  const K = '#d46080';      // cheek pink
+  const L = '#a892ff';      // highlight
+  const G = '#60d4a8';      // green sparkle
+  const Y = '#f0c030';      // yellow sparkle
+
+  // 40×40 pixel grid defining Pip
+  // prettier-ignore
+  const BASE = [
+    // row 0-4: nothing
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    // row 5: top of head
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_],
+    // row 10: highlight
+    [_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,L,L,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,L,L,L,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,L,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    // row 15: eyes
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,W2,W2,W2,W2,B,B,B,B,B,B,W2,W2,W2,W2,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,W2,W2,W2,W2,B,B,B,B,B,B,W2,W2,W2,W2,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,W2,P, P, W2,B,B,B,B,B,B,W2,P, P, W2,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,W2,P, P, W2,B,B,B,B,B,B,W2,P, P, W2,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,W2,W2,W2,W2,B,B,B,B,B,B,W2,W2,W2,W2,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    // row 20: nose / mid
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    // row 22: cheeks + smile
+    [_,_,_,_,_,_,_,B,B,B,K,K,K,B,B,B,B,B,B,B,B,B,B,B,B,B,K,K,K,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,K,K,K,B,B,D,D,D,D,D,D,D,D,D,D,B,K,K,K,B,B,B,B,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,D,D,D,D,D,D,D,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_],
+    // row 25: bottom of body
+    [_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,_,_,_,_,_,_,_,_,_,_,_,_],
+    // row 30-39: nothing (for bob clearance)
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+    [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  ];
+
+  // Sparkle definitions: [gridX, gridY, color, phase-offset, speed]
+  const SPARKLES = [
+    { x: 3,  y: 4,  c: Y, ph: 0.0,  sp: 0.8 },
+    { x: 36, y: 4,  c: G, ph: 1.2,  sp: 1.1 },
+    { x: 1,  y: 15, c: L, ph: 0.5,  sp: 0.9 },
+    { x: 37, y: 13, c: Y, ph: 2.0,  sp: 1.3 },
+    { x: 5,  y: 27, c: G, ph: 0.9,  sp: 0.7 },
+    { x: 35, y: 28, c: L, ph: 1.7,  sp: 1.0 },
+    { x: 19, y: 2,  c: Y, ph: 0.3,  sp: 1.2 },
+    { x: 2,  y: 9,  c: G, ph: 2.4,  sp: 0.85},
+  ];
+
+  function drawPixel(x, y, color, offsetY) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x * PX, y * PX + offsetY, PX, PX);
+  }
+
+  function drawSparkle(sx, sy, size, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(sx - size/2, sy - size/2, size, size);
+    ctx.fillRect(sx - 1, sy - size, 2, size * 2);
+    ctx.fillRect(sx - size, sy - 1, size * 2, 2);
+  }
+
+  // Blink state
+  let blinkT = 0;
+  let blinking = false;
+  let blinkTimer = 0;
+
+  function draw(ts) {
+    // Clear
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Bob offset
+    const bob = Math.sin(ts / 600) * 3;
+
+    // Blink logic — eyes close every ~4s for 0.2s
+    blinkTimer += 1 / 60;
+    if (!blinking && blinkTimer > 4.0) { blinking = true; blinkT = 0; blinkTimer = 0; }
+    if (blinking) {
+      blinkT += 1 / 60;
+      if (blinkT > 0.2) { blinking = false; }
+    }
+
+    // Draw Pip body pixels
+    for (let row = 0; row < H; row++) {
+      for (let col = 0; col < W; col++) {
+        let color = BASE[row][col];
+        if (!color) continue;
+
+        // Override eye pixels during blink
+        if (blinking) {
+          const isEyeCol = (col >= 13 && col <= 16) || (col >= 23 && col <= 26);
+          const isEyeRow = (row >= 15 && row <= 19);
+          if (isEyeCol && isEyeRow) {
+            // draw closed eye (thin line) at row 17 only
+            if (row === 17 || row === 18) {
+              color = D;
+            } else {
+              color = B;
+            }
+          }
+        }
+
+        drawPixel(col, row, color, bob);
+      }
+    }
+
+    // Draw sparkles
+    for (const sp of SPARKLES) {
+      const alpha = (Math.sin(ts / 1000 * sp.sp + sp.ph) + 1) / 2; // 0..1
+      if (alpha < 0.08) continue;
+      const size = Math.max(1, Math.round(alpha * 5));
+      ctx.globalAlpha = alpha * 0.9;
+      drawSparkle(sp.x * PX + PX / 2, sp.y * PX + PX / 2 + bob, size, sp.c);
+      ctx.globalAlpha = 1;
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  requestAnimationFrame(draw);
+})();
+
+
+// ── Intersection Observer — fade-in-up ───────────────────────────────────────
+(function () {
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        obs.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+
+  document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+})();
+
+
+// ── Copy install block ────────────────────────────────────────────────────────
+function copyInstall() {
+  const raw = `# 1. Install Python dependencies
+pip install PyQt6 pynput
+pip install psutil   # optional — CPU/RAM reactions
+
+# 2. Install optional system tools
+sudo apt install xdotool playerctl
+
+# 3. Ensure Claude Code CLI is installed & authenticated
+claude --version   # should print a version number
+claude -p "hi"    # should return a response
+
+# 4. Run Pip
+cd /path/to/companion
+python main.py`;
+
+  navigator.clipboard.writeText(raw).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    // Fallback for file:// or older browsers
+    const ta = document.createElement('textarea');
+    ta.value = raw;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch(e) {}
+    document.body.removeChild(ta);
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+
+// ── Smooth scroll polyfill for older Safari ───────────────────────────────────
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', function (e) {
+    const target = document.querySelector(this.getAttribute('href'));
+    if (!target) return;
+    e.preventDefault();
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+</script>
+</body>
+</html>

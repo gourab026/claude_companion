@@ -193,6 +193,10 @@ class CompanionWindow(QWidget):
         self._keypress_lock          = threading.Lock()
         self._session_active_start   = time.time()   # for 2-hour screen-time nudge
         self._screen_nudge_done      = False
+        if datetime.now().hour >= 23 or datetime.now().hour < 4:
+            p = self._personality.get_profile()
+            p["late_nights"] = p.get("late_nights", 0) + 1
+            self._personality.save()
         self._typing_check           = QTimer(self)
         self._typing_check.timeout.connect(self._check_typing_idle)
         self._typing_check.start(60_000)
@@ -213,6 +217,20 @@ class CompanionWindow(QWidget):
         self._pomo_timer = QTimer(self)
         self._pomo_timer.setSingleShot(True)
         self._pomo_timer.timeout.connect(self._on_pomodoro_done)
+
+        # ── Hydration reminder ────────────────────────────────────────────────
+        self._hydration_timer = QTimer(self)
+        self._hydration_timer.timeout.connect(self._hydration_reminder)
+        self._update_hydration_timer()
+
+        # Eye-strain 20-20-20
+        self._eyestrain_timer = QTimer(self)
+        self._eyestrain_timer.timeout.connect(self._eyestrain_reminder)
+        if self._personality._data.get("eyestrain_enabled", True):
+            self._eyestrain_timer.start(20 * 60_000)
+
+        # Focus mode state
+        self._focus_mode: bool = self._personality._data.get("focus_mode", False)
 
         # ── Active window + music + stats watchers ───────────────────────────
         self._window_timer = QTimer(self)
@@ -277,7 +295,7 @@ class CompanionWindow(QWidget):
             self._anim_timer, self._idle_timer, self._return_timer,
             self._click_timer, self._dream_timer, self._typing_check,
             self._pomo_timer, self._window_timer, self._music_timer,
-            self._stats_timer,
+            self._stats_timer, self._hydration_timer, self._eyestrain_timer,
         ):
             timer.stop()
         if hasattr(self, "_kb_listener") and self._kb_listener:
@@ -391,8 +409,32 @@ class CompanionWindow(QWidget):
 
         user_text = text.strip()
 
-        # ── Sticky note shortcut ──────────────────────────────────────────────
+        # ── Teach / bookmark shortcuts (checked before remember) ─────────────
         lower = user_text.lower()
+        for prefix in ("teach:", "teach :"):
+            if lower.startswith(prefix):
+                content = user_text[len(prefix):].strip()
+                if "=" in content:
+                    word, _, meaning = content.partition("=")
+                    word, meaning = word.strip(), meaning.strip()
+                    if word and meaning:
+                        self._personality.teach_word(word, meaning)
+                        self._char.set_state(State.HAPPY)
+                        self._show_bubble(f"Got it! I'll remember that \"{word}\" means \"{meaning}\" 📚", style=THOUGHT)
+                        self._return_timer.start(4000)
+                return
+
+        for prefix in ("bookmark:", "bookmark :"):
+            if lower.startswith(prefix):
+                url = user_text[len(prefix):].strip()
+                if url:
+                    self._personality.add_bookmark(url)
+                    self._char.set_state(State.HAPPY)
+                    self._show_bubble(f"Bookmarked! 🔖 {url[:40]}", style=THOUGHT)
+                    self._return_timer.start(3000)
+                return
+
+        # ── Sticky note shortcut ──────────────────────────────────────────────
         for prefix in ("remember:", "note:", "remember :", "note :"):
             if lower.startswith(prefix):
                 note_text = user_text[len(prefix):].strip()
@@ -462,6 +504,7 @@ class CompanionWindow(QWidget):
         self._show_bubble(response)
         bubble_ms = max(6000, len(response.split()) * 300)
         self._return_timer.start(bubble_ms + 500)
+        QTimer.singleShot(1000, self._check_achievements)
 
     def _on_error(self, msg: str):
         self._pending_user_msg = ""
@@ -482,6 +525,11 @@ class CompanionWindow(QWidget):
             delay = 6000 if not word else 14000
             QTimer.singleShot(delay, lambda c=challenge: self._fire_challenge(c))
 
+        QTimer.singleShot(15_000, self._check_weekly_recap)
+
+        if self._personality.needs_checkin():
+            QTimer.singleShot(12_000, self._check_emotional)
+
     def _fire_word_of_day(self, word: str, defn: str):
         if self._char.state != State.IDLE:
             return
@@ -497,6 +545,49 @@ class CompanionWindow(QWidget):
         self._personality.log_mood("THINKING")
         self._show_bubble(f"Daily challenge 💡\n{challenge}", style=THOUGHT)
         self._return_timer.start(10000)
+
+    def _check_emotional(self):
+        if not self._personality.needs_checkin():
+            return
+        moods = ["Great! 😄", "Good 🙂", "Okay 😐", "Tired 😴", "Stressed 😤", "Not great 😔"]
+        mood, ok = QInputDialog.getItem(
+            None, f"Hey {self._personality.name}! 💙",
+            "Quick check-in — how are you feeling?",
+            moods, 0, False,
+        )
+        if not ok:
+            return
+        self._personality.log_checkin(mood)
+        responses = {
+            "Great! 😄": ("Wonderful! Keep that energy! ✨", State.HAPPY),
+            "Good 🙂":   ("Glad to hear it! 😊", State.HAPPY),
+            "Okay 😐":   ("Okay is totally fine. I'm here if you need me. 💙", State.WAVING),
+            "Tired 😴":  ("You've been working hard. Maybe take a short break? ☕", State.SLEEPING),
+            "Stressed 😤": ("Hey — breathe. You've got this. One thing at a time. 🤝", State.THINKING),
+            "Not great 😔": ("I'm sorry you're having a tough time. I'm here. 💙", State.WAVING),
+        }
+        text, state = responses.get(mood, ("Thanks for sharing! 💙", State.HAPPY))
+        self._char.set_state(state)
+        self._show_bubble(text, style=THOUGHT)
+        self._return_timer.start(6000)
+
+    def _check_achievements(self):
+        p = self._personality
+        checks = [
+            ("first_chat",         p._data.get("interactions", 0) >= 1,    "First chat! We're friends now 🎉"),
+            ("interactions_10",    p._data.get("interactions", 0) >= 10,   "10 chats! I'm getting to know you ✨"),
+            ("interactions_100",   p._data.get("interactions", 0) >= 100,  "100 conversations! True friendship 💙"),
+            ("streak_7",           p._data.get("streak", 0) >= 7,          "7-day streak! You're consistent 🔥"),
+            ("streak_30",          p._data.get("streak", 0) >= 30,         "30 days! I'm so glad you're here 🌟"),
+            ("notes_first",        len(p.get_notes()) >= 1,                "First note saved! 📌"),
+            ("profile_complete",   p._data.get("profile_complete", False), "Profile complete! I know you better now 💜"),
+        ]
+        for achievement_id, condition, message in checks:
+            if condition and p.unlock_achievement(achievement_id):
+                self._char.set_state(State.HAPPY)
+                self._show_bubble(f"Achievement unlocked: {message}", style=SHOUT)
+                self._return_timer.start(5000)
+                break  # show one at a time
 
     # ── Clipboard watcher ─────────────────────────────────────────────────────
 
@@ -523,6 +614,14 @@ class CompanionWindow(QWidget):
             ]
             self._show_bubble(random.choice(cheers), style=SHOUT)
             self._return_timer.start(6000)
+            return
+
+        if self._is_code_snippet(text):
+            self._char.set_state(State.SURPRISED)
+            QTimer.singleShot(600, lambda: self._char.set_state(State.THINKING))
+            self._clipboard_pending = text
+            self._show_bubble("That looks like code! Click me to ask about it 💻")
+            self._return_timer.start(5000)
             return
 
         self._char.set_state(State.SURPRISED)
@@ -637,10 +736,52 @@ class CompanionWindow(QWidget):
         self._show_bubble(msg)
         self._return_timer.start(6000)
 
+        if not self._personality._data.get("profile_complete", False):
+            QTimer.singleShot(5000, self._run_profile_questionnaire)
+
     def _second_pip_greet(self):
         self._char.set_state(State.HAPPY)
         greets = ["hi!! 👋", "oh, a twin!~", "heyyy~", "another me! ✨"]
         self._show_bubble(random.choice(greets))
+        self._return_timer.start(4000)
+
+    def _run_profile_questionnaire(self):
+        """Ask 3 quick questions on first run to seed user profile."""
+        work, ok = QInputDialog.getItem(
+            None, "Hey, nice to meet you! 👋",
+            "What best describes what you do?",
+            ["Developer / Engineer", "Designer", "Student", "Writer / Creator", "Other"],
+            0, False,
+        )
+        if not ok:
+            return
+        work_map = {"Developer / Engineer": "developer", "Designer": "designer",
+                    "Student": "student", "Writer / Creator": "writer", "Other": "other"}
+        self._personality.set_profile_field("work_type", work_map.get(work, "other"))
+
+        interests_raw, ok = QInputDialog.getText(
+            None, "Nice! 🎉",
+            "What are your interests? (comma-separated, e.g. Python, music, coffee)",
+        )
+        if ok and interests_raw.strip():
+            interests = [i.strip() for i in interests_raw.split(",") if i.strip()][:8]
+            self._personality.set_profile_field("interests", interests)
+
+        style, ok = QInputDialog.getItem(
+            None, "Almost done! ✨",
+            "How do you like Pip to talk to you?",
+            ["Casual & playful", "Warm & supportive", "Professional & concise"],
+            0, False,
+        )
+        if ok:
+            style_map = {"Casual & playful": "casual", "Warm & supportive": "casual",
+                         "Professional & concise": "professional"}
+            self._personality.set_profile_field("communication_style", style_map.get(style, "casual"))
+
+        self._personality._data["profile_complete"] = True
+        self._personality.save()
+        self._char.set_state(State.HAPPY)
+        self._show_bubble("Nice to meet you! I'll remember that. 😊", style=THOUGHT)
         self._return_timer.start(4000)
 
     def _pet_pip(self):
@@ -712,6 +853,48 @@ class CompanionWindow(QWidget):
             self._char.set_state(State.WAVING)
             self._show_bubble(autonomous_q)
             self._return_timer.start(6000)
+            self._schedule_idle()
+            return
+
+        # Stress check (rare — 5% chance)
+        if random.random() < 0.05 and self._personality.detect_stress():
+            self._char.set_state(State.WAVING)
+            self._show_bubble("Hey — I've noticed you've been pushing yourself a lot lately. Are you taking care of yourself? 💙", style=THOUGHT)
+            self._return_timer.start(8000)
+            self._schedule_idle()
+            return
+
+        # Whimsical wish (3% chance)
+        if random.random() < 0.03:
+            self._pip_wish()
+            self._schedule_idle()
+            return
+
+        # Daily learning prompt (after 6pm, once per day)
+        if datetime.now().hour >= 18:
+            self._prompt_daily_learning()
+
+        # Interest fact (8% chance)
+        if random.random() < 0.08 and not self._focus_mode:
+            self._fetch_interest_fact()
+            self._schedule_idle()
+            return
+
+        # Skill tip (once per day, 15% chance)
+        if random.random() < 0.15 and not self._focus_mode:
+            self._fetch_skill_tip()
+            self._schedule_idle()
+            return
+
+        # Code joke (once per day, 10% chance)
+        if random.random() < 0.10 and not self._focus_mode:
+            self._fetch_code_joke()
+            self._schedule_idle()
+            return
+
+        # Git activity (8% chance)
+        if random.random() < 0.08 and not self._focus_mode:
+            self._check_git_activity()
             self._schedule_idle()
             return
 
@@ -954,6 +1137,266 @@ class CompanionWindow(QWidget):
         self._personality.log_mood(state.name)
         self._show_bubble(msg)
         self._return_timer.start(6000)
+
+    # ── Feature 1: Hydration reminder ────────────────────────────────────────
+
+    def _update_hydration_timer(self):
+        if self._personality._data.get("hydration_enabled", True):
+            interval = self._personality._data.get("hydration_interval_min", 45)
+            self._hydration_timer.start(interval * 60_000)
+        else:
+            self._hydration_timer.stop()
+
+    def _hydration_reminder(self):
+        if self._minimized or self._personality.is_quiet_hours() or self._focus_mode:
+            return
+        msgs = ["Time for some water! 💧", "Hydration check! 💧 Have you had water lately?",
+                "Psst — drink some water. I mean it. 💧", "Water break! Your brain will thank you. 💧"]
+        self._char.set_state(State.HAPPY)
+        self._show_bubble(random.choice(msgs))
+        self._return_timer.start(4000)
+
+    # ── Feature 2: Eye-strain 20-20-20 ───────────────────────────────────────
+
+    def _eyestrain_reminder(self):
+        if self._minimized or self._personality.is_quiet_hours() or self._focus_mode:
+            return
+        self._char.set_state(State.THINKING)
+        self._show_bubble("20-20-20 rule! Look at something 20 feet away for 20 seconds. 👀", style=THOUGHT)
+        self._return_timer.start(5000)
+
+    # ── Feature 3: Focus mode ────────────────────────────────────────────────
+
+    def _toggle_focus_mode(self):
+        self._focus_mode = not self._focus_mode
+        self._personality._data["focus_mode"] = self._focus_mode
+        self._personality.save()
+        if self._focus_mode:
+            self._idle_timer.stop()
+            self._show_bubble("Focus mode ON. I'll stay quiet. You've got this. 🎯", style=THOUGHT)
+        else:
+            self._schedule_idle()
+            self._show_bubble("Focus mode OFF. I'm back! 🎉", style=SPEECH)
+        self._return_timer.start(3000)
+
+    # ── Feature 5: Weekly recap ───────────────────────────────────────────────
+
+    def _check_weekly_recap(self):
+        """Fire weekly recap on Mondays."""
+        if date.today().weekday() != 0:  # Monday
+            return
+        last = self._personality._data.get("last_weekly_recap", "")
+        if last == date.today().isoformat():
+            return
+        self._personality._data["last_weekly_recap"] = date.today().isoformat()
+        self._personality.save()
+        interactions = self._personality._data.get("interactions", 0)
+        streak = self._personality._data.get("streak", 0)
+        topics = self._personality._data.get("topics", [])
+        top = topics[-3:] if topics else []
+        msg = f"Weekly recap! 📊 {interactions} total chats, {streak}-day streak"
+        if top:
+            msg += f", talked about: {', '.join(top)}"
+        self._char.set_state(State.DANCING)
+        self._show_bubble(msg, style=THOUGHT)
+        self._return_timer.start(7000)
+
+    # ── Feature 6: "What did I learn today?" ──────────────────────────────────
+
+    def _prompt_daily_learning(self):
+        today = date.today().isoformat()
+        if self._personality._data.get("last_learn_day") == today:
+            return
+        if datetime.now().hour < 18:  # only after 6pm
+            return
+        self._personality._data["last_learn_day"] = today
+        self._personality.save()
+        self._char.set_state(State.THINKING)
+        self._show_bubble("Evening question 🌙 What's one thing you learned today?", style=THOUGHT)
+        self._return_timer.start(6000)
+
+    # ── Feature 7: Pip's whimsical wish ──────────────────────────────────────
+
+    def _pip_wish(self):
+        wishes = [
+            "I wish I could taste pizza... 🍕",
+            "I wish I had tiny hands to type with...",
+            "Sometimes I wonder what rain sounds like. 🌧️",
+            "I wish I could read all the books. 📚",
+            "If I could have a pet, I'd want a pixel cat. 🐱",
+            "I wish I could code for you while you sleep...",
+        ]
+        self._char.set_state(State.SLEEPING)
+        self._show_bubble(random.choice(wishes), style=THOUGHT)
+        self._return_timer.start(5000)
+
+    # ── Feature 10: Interest-based random fact ───────────────────────────────
+
+    def _fetch_interest_fact(self):
+        profile = self._personality.get_profile() if hasattr(self._personality, 'get_profile') else {}
+        interests = profile.get("interests", [])
+        if not interests:
+            return
+        topic = random.choice(interests)
+        sys_p = self._personality.get_system_prompt()
+        prompt = f"Share one surprising, little-known fact about {topic}. Keep it to 1-2 sentences. Make it genuinely interesting."
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        worker = ClaudeWorker(prompt, sys_p, model=model)
+        worker.response_ready.connect(lambda f: self._on_interest_fact(f))
+        worker.error_occurred.connect(lambda _: None)
+        worker.start()
+        self._char.set_state(State.THINKING)
+
+    def _on_interest_fact(self, fact: str):
+        self._show_bubble(f"💡 {fact.strip()}", style=THOUGHT)
+        self._return_timer.start(8000)
+
+    # ── Feature 11: Git activity reader ──────────────────────────────────────
+
+    def _check_git_activity(self):
+        def _bg():
+            try:
+                result = subprocess.run(
+                    ["git", "log", "--oneline", "-3"],
+                    capture_output=True, text=True, timeout=5,
+                    cwd=os.path.expanduser("~")
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    lines = result.stdout.strip().splitlines()
+                    QTimer.singleShot(0, lambda: self._react_git_activity(lines))
+            except Exception:
+                pass
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _react_git_activity(self, commits: list):
+        if not commits:
+            return
+        msg = commits[0][:60]
+        reactions = [
+            f"I see you committed: \"{msg}\" — nice work! 💪",
+            f"Recent commit: \"{msg}\" — making progress! 🚀",
+            f"Spotted a new commit! \"{msg}\" ✨",
+        ]
+        self._char.set_state(State.HAPPY)
+        self._show_bubble(random.choice(reactions))
+        self._return_timer.start(5000)
+
+    # ── Feature 12: Code joke of the day ─────────────────────────────────────
+
+    def _fetch_code_joke(self):
+        today = date.today().isoformat()
+        if self._personality._data.get("last_joke_day") == today:
+            return
+        self._personality._data["last_joke_day"] = today
+        self._personality.save()
+        sys_p = self._personality.get_system_prompt()
+        prompt = "Tell me one short, clever programming joke. Max 2 sentences. Make it genuinely funny."
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        worker = ClaudeWorker(prompt, sys_p, model=model)
+        worker.response_ready.connect(lambda j: self._on_joke_ready(j))
+        worker.error_occurred.connect(lambda _: None)
+        worker.start()
+
+    def _on_joke_ready(self, joke: str):
+        self._char.set_state(State.DANCING)
+        self._show_bubble(f"😄 {joke.strip()}", style=SPEECH)
+        self._return_timer.start(8000)
+
+    # ── Feature 13: Code detection in clipboard ───────────────────────────────
+
+    def _is_code_snippet(self, text: str) -> bool:
+        code_patterns = ["def ", "class ", "function ", "import ", "const ", "var ", "let ",
+                         "public ", "private ", "return ", "#include", "SELECT ", "FROM "]
+        return any(text.lstrip().startswith(p) or f"\n{p}" in text for p in code_patterns)
+
+    # ── Feature 14: Breathing exercise ───────────────────────────────────────
+
+    def _breathing_exercise(self):
+        steps = [
+            ("Breathing exercise 🌬️ Breathe IN... (4 seconds)", 4500),
+            ("Hold your breath... (7 seconds)", 7500),
+            ("Breathe OUT slowly... (8 seconds) 😮‍💨", 8500),
+            ("Great! Repeat 3 times for best effect 🌟", 4000),
+        ]
+        def _step(i=0):
+            if i >= len(steps):
+                self._char.set_state(State.HAPPY)
+                self._show_bubble("Done! How do you feel? 🌿")
+                self._return_timer.start(4000)
+                return
+            text, delay = steps[i]
+            self._char.set_state(State.SLEEPING)
+            self._show_bubble(text, style=THOUGHT)
+            QTimer.singleShot(delay, lambda: _step(i + 1))
+        _step()
+
+    # ── Feature 15: Skill tip of the day ─────────────────────────────────────
+
+    def _fetch_skill_tip(self):
+        today = date.today().isoformat()
+        if self._personality._data.get("last_skill_tip_day") == today:
+            return
+        topics = self._personality._data.get("topics", [])
+        if not topics:
+            return
+        topic = random.choice(topics[-5:])
+        self._personality._data["last_skill_tip_day"] = today
+        self._personality.save()
+        sys_p = self._personality.get_system_prompt()
+        prompt = f"Give one practical, actionable tip about {topic}. 1-2 sentences max. Make it immediately useful."
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        worker = ClaudeWorker(prompt, sys_p, model=model)
+        worker.response_ready.connect(lambda t: self._on_skill_tip(t))
+        worker.error_occurred.connect(lambda _: None)
+        worker.start()
+        self._char.set_state(State.THINKING)
+
+    def _on_skill_tip(self, tip: str):
+        self._show_bubble(f"💡 Tip: {tip.strip()}", style=THOUGHT)
+        self._return_timer.start(8000)
+
+    # ── Feature 17: Session stats ────────────────────────────────────────────
+
+    def _show_session_stats(self):
+        interactions = self._personality._data.get("interactions", 0)
+        streak = self._personality._data.get("streak", 0)
+        uptime_min = int((time.time() - self._session_active_start) / 60)
+        msg = f"📊 Stats: {interactions} total chats, {streak}-day streak, {uptime_min}min this session"
+        self._char.set_state(State.HAPPY)
+        self._show_bubble(msg, style=THOUGHT)
+        self._return_timer.start(6000)
+
+    # ── Feature 20: Focus zone timer (custom interval) ───────────────────────
+
+    def _start_focus_zone(self):
+        minutes = self._personality._data.get("focus_zone_minutes", 25)
+        self._char.set_state(State.THINKING)
+        self._show_bubble(f"Focus zone: {minutes} min. You've got this! 🎯 I'll be quiet.", style=THOUGHT)
+        self._focus_mode = True
+        self._idle_timer.stop()
+        self._return_timer.start(3000)
+        QTimer.singleShot(minutes * 60_000, self._focus_zone_done)
+
+    def _focus_zone_done(self):
+        self._focus_mode = False
+        self._schedule_idle()
+        self._char.set_state(State.DANCING)
+        self._show_bubble("Focus zone complete! 🎉 Amazing work — take a break!", style=SHOUT)
+        self._return_timer.start(5000)
+
+    # ── Bookmarks ─────────────────────────────────────────────────────────────
+
+    def _show_bookmarks(self):
+        bookmarks = self._personality.get_bookmarks()
+        if not bookmarks:
+            self._show_bubble("No bookmarks yet! Use \"bookmark: URL\" in chat. 🔖")
+            return
+        items = [f"{b.get('title', b['url'])}" for b in bookmarks[-10:]]
+        item, ok = QInputDialog.getItem(None, "My Bookmarks 🔖", "Your saved links:", items, 0, False)
+        if ok and item:
+            idx = items.index(item)
+            url = bookmarks[-(len(items)) + idx]["url"]
+            subprocess.Popen(["xdg-open", url])
 
     # ── Pomodoro ──────────────────────────────────────────────────────────────
 
@@ -1266,6 +1709,16 @@ class CompanionWindow(QWidget):
         clear_action.triggered.connect(self._clear_history)
         menu.addSeparator()
 
+        menu.addSeparator()
+        focus_label = "🔇 Stop Focus Mode" if self._focus_mode else "🎯 Focus Mode"
+        menu.addAction(focus_label, self._toggle_focus_mode)
+        menu.addAction("🎯 Focus Zone Timer", self._start_focus_zone)
+        menu.addAction("🌬️ Breathing Exercise", self._breathing_exercise)
+        menu.addAction("📊 Today's Stats", self._show_session_stats)
+        bookmarks = self._personality.get_bookmarks() if hasattr(self._personality, 'get_bookmarks') else []
+        if bookmarks:
+            menu.addAction(f"🔖 My Bookmarks ({len(bookmarks)})", self._show_bookmarks)
+
         menu.addAction("Rename", self._rename)
         menu.addAction("Quit", QApplication.quit)
         menu.exec(pos)
@@ -1287,6 +1740,7 @@ class CompanionWindow(QWidget):
         if self._panel is None:
             self._panel = ControlPanel(self._personality, self._settings, MCP_CONFIG)
             self._panel.settings_changed.connect(self._on_settings_changed)
+            self._panel.breathing_requested.connect(self._breathing_exercise)
             self._panel.destroyed.connect(lambda: setattr(self, "_panel", None))
         self._panel.refresh()
         self._panel.show()
@@ -1296,6 +1750,16 @@ class CompanionWindow(QWidget):
     def _on_settings_changed(self):
         self._idle_timer.stop()
         self._schedule_idle()
+        self._update_hydration_timer()
+        if self._personality._data.get("eyestrain_enabled", True):
+            if not self._eyestrain_timer.isActive():
+                self._eyestrain_timer.start(20 * 60_000)
+        else:
+            self._eyestrain_timer.stop()
+        focus_mode_new = self._personality._data.get("focus_mode", False)
+        if not focus_mode_new and self._focus_mode:
+            self._focus_mode = False
+            self._schedule_idle()
 
     def _rename(self):
         name, ok = QInputDialog.getText(

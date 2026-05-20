@@ -20,7 +20,8 @@ LOG_FILE = os.path.join(os.path.expanduser("~"), ".pip-companion.log")
 
 
 class ControlPanel(QWidget):
-    settings_changed = pyqtSignal()
+    settings_changed    = pyqtSignal()
+    breathing_requested = pyqtSignal()
 
     def __init__(self, personality: Personality, settings: QSettings,
                  mcp_config_path: str, parent=None):
@@ -34,11 +35,14 @@ class ControlPanel(QWidget):
 
         tabs = QTabWidget()
         tabs.addTab(self._personality_tab(), "Personality")
+        tabs.addTab(self._profile_tab(),     "Profile 👤")
         tabs.addTab(self._mood_tab(),        "Mood History")
         tabs.addTab(self._journal_tab(),     "Journal")
         tabs.addTab(self._notes_tab(),       "Notes 📌")
         tabs.addTab(self._tools_tab(),       "Tools & MCP")
         tabs.addTab(self._settings_tab(),    "Settings")
+        tabs.addTab(self._wellness_tab(),    "Wellness 🌿")
+        tabs.addTab(self._focus_tab(),       "Focus 🎯")
         tabs.addTab(self._about_tab(),       "About")
 
         root = QVBoxLayout(self)
@@ -123,6 +127,59 @@ class ControlPanel(QWidget):
         lo.addLayout(btns)
         lo.addStretch()
         return w
+
+    # ═══════════════════════════════════════════ Profile tab ═════════════════
+
+    def _profile_tab(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+
+        form = QFormLayout()
+        self._work_combo = QComboBox()
+        self._work_combo.addItems(["(not set)", "Developer / Engineer", "Designer", "Student", "Writer / Creator", "Other"])
+        form.addRow("Work type:", self._work_combo)
+
+        self._comm_combo = QComboBox()
+        self._comm_combo.addItems(["casual", "professional", "playful"])
+        form.addRow("Communication style:", self._comm_combo)
+
+        self._interests_edit = QLineEdit()
+        self._interests_edit.setPlaceholderText("e.g. Python, music, coffee (comma-separated)")
+        form.addRow("Interests:", self._interests_edit)
+
+        lay.addLayout(form)
+
+        save_btn = QPushButton("Save Profile")
+        save_btn.clicked.connect(self._save_profile)
+        lay.addWidget(save_btn)
+
+        lay.addWidget(QLabel("Recent check-ins:"))
+        self._checkin_list = QListWidget()
+        self._checkin_list.setMaximumHeight(120)
+        lay.addWidget(self._checkin_list)
+
+        lay.addWidget(QLabel("Achievements:"))
+        self._achievement_list = QListWidget()
+        self._achievement_list.setMaximumHeight(100)
+        lay.addWidget(self._achievement_list)
+
+        lay.addWidget(QLabel("Vocabulary (word = meaning):"))
+        self._vocab_list = QListWidget()
+        self._vocab_list.setMaximumHeight(80)
+        lay.addWidget(self._vocab_list)
+
+        lay.addStretch()
+        return w
+
+    def _save_profile(self):
+        work_map = {"(not set)": "", "Developer / Engineer": "developer", "Designer": "designer",
+                    "Student": "student", "Writer / Creator": "writer", "Other": "other"}
+        work_text = self._work_combo.currentText()
+        self._p.set_profile_field("work_type", work_map.get(work_text, ""))
+        self._p.set_profile_field("communication_style", self._comm_combo.currentText())
+        interests = [i.strip() for i in self._interests_edit.text().split(",") if i.strip()]
+        self._p.set_profile_field("interests", interests)
+        QMessageBox.information(self, "Saved", "Profile saved!")
 
     # ═══════════════════════════════════════════ Notes tab ══════════════════
 
@@ -351,6 +408,23 @@ class ControlPanel(QWidget):
             ts = note.get("t", "")[:16].replace("T", " ")
             item = QListWidgetItem(f"[{ts}]  {note['text']}")
             self._notes_list.addItem(item)
+        # Profile tab
+        profile = self._p.get_profile()
+        work_rev = {"": 0, "developer": 1, "designer": 2, "student": 3, "writer": 4, "other": 5}
+        self._work_combo.setCurrentIndex(work_rev.get(profile.get("work_type", ""), 0))
+        comm_options = ["casual", "professional", "playful"]
+        comm = profile.get("communication_style", "casual")
+        self._comm_combo.setCurrentIndex(comm_options.index(comm) if comm in comm_options else 0)
+        self._interests_edit.setText(", ".join(profile.get("interests", [])))
+        self._checkin_list.clear()
+        for c in reversed(profile.get("checkins", [])[-7:]):
+            self._checkin_list.addItem(f"{c['date']}: {c['mood']}")
+        self._achievement_list.clear()
+        for a in profile.get("achievements_unlocked", []):
+            self._achievement_list.addItem(f"🏆 {a.replace('_', ' ')}")
+        self._vocab_list.clear()
+        for word, meaning in profile.get("vocabulary", {}).items():
+            self._vocab_list.addItem(f"{word} = {meaning}")
 
     # ═══════════════════════════════════════════ Personality actions ══════════
 
@@ -493,6 +567,103 @@ class ControlPanel(QWidget):
     def _reset_position(self):
         self._s.remove("x"); self._s.remove("y")
         QMessageBox.information(self, "Done", "Position reset. Restart Pip to apply.")
+
+    # ═══════════════════════════════════════════ Wellness tab ════════════════
+
+    def _wellness_tab(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+
+        form = QFormLayout()
+        self._hydration_cb = QCheckBox("Enable hydration reminders")
+        self._hydration_cb.setChecked(self._s.value("hydration_enabled", True, type=bool))
+        form.addRow(self._hydration_cb)
+
+        self._hydration_spin = QSpinBox()
+        self._hydration_spin.setRange(15, 120)
+        self._hydration_spin.setSuffix(" min")
+        self._hydration_spin.setValue(self._s.value("hydration_interval_min", 45, type=int))
+        form.addRow("Reminder interval:", self._hydration_spin)
+
+        self._eyestrain_cb = QCheckBox("Enable 20-20-20 eye-strain reminders (every 20 min)")
+        self._eyestrain_cb.setChecked(self._s.value("eyestrain_enabled", True, type=bool))
+        form.addRow(self._eyestrain_cb)
+
+        lay.addLayout(form)
+
+        breathing_btn = QPushButton("Start Breathing Exercise 🌬️")
+        breathing_btn.clicked.connect(self._trigger_breathing)
+        lay.addWidget(breathing_btn)
+
+        save_btn = QPushButton("Save Wellness Settings")
+        save_btn.clicked.connect(self._save_wellness)
+        lay.addWidget(save_btn)
+        lay.addStretch()
+        return w
+
+    # ═══════════════════════════════════════════ Focus tab ════════════════════
+
+    def _focus_tab(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+
+        form = QFormLayout()
+
+        self._quiet_hours_cb = QCheckBox("Enable quiet hours (no idle bubbles)")
+        self._quiet_hours_cb.setChecked(self._s.value("quiet_hours_enabled", False, type=bool))
+        form.addRow(self._quiet_hours_cb)
+
+        self._quiet_start_spin = QSpinBox()
+        self._quiet_start_spin.setRange(0, 23)
+        self._quiet_start_spin.setSuffix(":00")
+        self._quiet_start_spin.setValue(self._s.value("quiet_hours_start", 22, type=int))
+        form.addRow("Quiet from:", self._quiet_start_spin)
+
+        self._quiet_end_spin = QSpinBox()
+        self._quiet_end_spin.setRange(0, 23)
+        self._quiet_end_spin.setSuffix(":00")
+        self._quiet_end_spin.setValue(self._s.value("quiet_hours_end", 8, type=int))
+        form.addRow("Quiet until:", self._quiet_end_spin)
+
+        self._focus_zone_spin = QSpinBox()
+        self._focus_zone_spin.setRange(5, 120)
+        self._focus_zone_spin.setSuffix(" min")
+        self._focus_zone_spin.setValue(self._s.value("focus_zone_minutes", 25, type=int))
+        form.addRow("Focus zone duration:", self._focus_zone_spin)
+
+        lay.addLayout(form)
+        save_btn = QPushButton("Save Focus Settings")
+        save_btn.clicked.connect(self._save_focus)
+        lay.addWidget(save_btn)
+        lay.addStretch()
+        return w
+
+    def _save_wellness(self):
+        self._s.setValue("hydration_enabled", self._hydration_cb.isChecked())
+        self._s.setValue("hydration_interval_min", self._hydration_spin.value())
+        self._s.setValue("eyestrain_enabled", self._eyestrain_cb.isChecked())
+        self._p._data["hydration_enabled"] = self._hydration_cb.isChecked()
+        self._p._data["hydration_interval_min"] = self._hydration_spin.value()
+        self._p._data["eyestrain_enabled"] = self._eyestrain_cb.isChecked()
+        self._p.save()
+        self.settings_changed.emit()
+        QMessageBox.information(self, "Saved", "Wellness settings saved!")
+
+    def _save_focus(self):
+        self._s.setValue("quiet_hours_enabled", self._quiet_hours_cb.isChecked())
+        self._s.setValue("quiet_hours_start", self._quiet_start_spin.value())
+        self._s.setValue("quiet_hours_end", self._quiet_end_spin.value())
+        self._s.setValue("focus_zone_minutes", self._focus_zone_spin.value())
+        self._p._data["quiet_hours_enabled"] = self._quiet_hours_cb.isChecked()
+        self._p._data["quiet_hours_start"] = self._quiet_start_spin.value()
+        self._p._data["quiet_hours_end"] = self._quiet_end_spin.value()
+        self._p._data["focus_zone_minutes"] = self._focus_zone_spin.value()
+        self._p.save()
+        self.settings_changed.emit()
+        QMessageBox.information(self, "Saved", "Focus settings saved!")
+
+    def _trigger_breathing(self):
+        self.breathing_requested.emit()
 
 
 # ═══════════════════════════════════════ MCP Server dialog ═══════════════════

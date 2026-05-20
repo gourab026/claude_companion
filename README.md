@@ -33,7 +33,7 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 - **Daily challenge** — one coding or creative prompt shown once per calendar day (thought bubble)
 - **Double-click to pet Pip** — happy reaction and a "hehe~ ♡" bubble, no AI call
 - **Drag reaction** — surprised DRAGGING face with speed lines; "wheee! ✨" on drop
-- **Clipboard watcher** — copies 30+ chars → Pip offers to explain; git commit SHAs → Pip dances and cheers
+- **Clipboard watcher** — copies 30+ chars → Pip offers to explain; git commit SHAs → Pip dances and cheers; code snippets → Pip switches to THINKING and offers to review
 - **Typing-aware idle** — 20 min without typing → Pip checks in with a break reminder
 - **Screen-time nudge** — 2 continuous hours at the desk → Pip tells you to take a real break (re-arms after 90 min)
 - **Random idle events** — dance, sleep, quips, haiku, time-aware greetings fire on a configurable timer; each quip drives its matching animation
@@ -54,6 +54,33 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 - **SURPRISED reactions** — clipboard and git SHA events flash a SURPRISED face (wide eyes, O-mouth, speed lines) before transitioning to the main reaction
 - **Structured logging** — every session, Claude call (with timing), bubble event, and idle event is logged to `~/.pip-companion.log` with rotation (5 MB × 3 backups)
 - **Graceful shutdown** — SIGTERM/SIGINT saves journal + personality before exit; all timers and keyboard listener are stopped cleanly
+
+### Wellness & Focus
+- **Hydration reminders** — configurable interval (default 45 min); says "drink water!" in a happy bubble; respects quiet hours and focus mode
+- **Eye-strain 20-20-20** — every 20 min Pip nudges you to look away from the screen for 20 seconds
+- **Breathing exercise** — 4-7-8 guided breathing from the right-click menu or Wellness tab; Pip leads each step with timed bubbles
+- **Focus mode** — toggle from the right-click menu; pauses all idle events and hydration reminders so Pip stays completely silent
+- **Focus zone timer** — configurable work sprint (default 25 min); Pip goes quiet then celebrates with a SHOUT bubble when done
+- **Quiet hours** — set a time window (e.g. 22:00–08:00) where all proactive bubbles are suppressed
+
+### User Profile & Psychology
+- **First-run questionnaire** — on first launch, Pip asks 3 questions (role, interests, communication style) and remembers them
+- **Mood check-ins** — after every 5th interaction Pip asks how you're feeling; tailors her response to the selected mood (tired → coffee break, stressed → breathing exercise cue)
+- **Achievement system** — 7 milestone achievements unlock with a SHOUT bubble (first chat, 10/100 conversations, 7/30-day streak, first note, profile complete)
+- **Stress detection** — if Pip detects 3+ late-night sessions or long-session patterns she gently checks in
+- **System prompt personalisation** — Pip's Claude prompt includes your role, interests, communication style, and custom vocabulary so every reply feels tailored
+- **`teach: word = meaning`** shortcut — teach Pip a word; she remembers it and can use it naturally
+- **`bookmark: URL`** shortcut — save a link via chat; view bookmarks from the right-click menu or Control Panel
+
+### Knowledge & Facts
+- **Interest-based facts** — 8% chance per idle cycle: Pip fetches a surprising Claude-generated fact about one of your stated interests
+- **Skill tip of the day** — once per day (15% idle chance): Pip shares a practical tip about a topic you've discussed
+- **Code joke of the day** — once per day (10% idle chance): Pip tells a clever programming joke via Claude
+- **Whimsical wishes** — 3% idle chance: Pip shares a whimsical wish ("I wish I could taste pizza…") for a cute moment
+- **Daily learning prompt** — after 6 pm Pip asks "What's one thing you learned today?" to encourage reflection
+- **Weekly recap** — every Monday Pip summarises your total chats, streak, and recent topics
+- **Git activity reader** — 8% idle chance: Pip spots your latest git commits and cheers you on
+- **Session stats** — right-click → "Today's Stats" shows total chats, streak, and session uptime
 
 ### Bubble Styles
 | Style | Appearance | Used for |
@@ -170,21 +197,32 @@ companion/
 │                      (PADDING_H=14 left/right, PADDING_V=12 top/bottom, MAX_WIDTH=300).
 │                      Returns early (no-op) when Pip is minimized.
 │
-├── control_panel.py   ControlPanel QWidget with 7 tabs:
+├── control_panel.py   ControlPanel QWidget with 10 tabs:
 │                        Personality    — name, traits, mood, topics, custom quips,
 │                                         relationship level, reset
+│                        Profile 👤     — work type, communication style, interests,
+│                                         recent check-ins, achievements, vocabulary
 │                        Mood History   — bar chart of today's mood events
 │                        Journal        — last 30 diary entries, newest first
 │                        Notes 📌       — view, delete, clear sticky notes
 │                        Tools & MCP    — web search toggle, MCP server manager
 │                        Settings       — model, idle interval, position reset,
 │                                         "Open Log File" button
+│                        Wellness 🌿    — hydration toggle+interval, eye-strain toggle,
+│                                         breathing exercise launcher
+│                        Focus 🎯       — quiet hours (start/end), focus zone duration
 │                        About          — help text
 │                      McpServerDialog — add/edit stdio or HTTP MCP servers.
 │
 ├── pip_companion.spec PyInstaller spec — builds the onedir bundle used in the AppImage.
 │
 ├── build_appimage.sh  One-command rebuild: PyInstaller → AppDir → AppImage.
+│
+├── docs/index.html    Animated landing page — drawn pixel-art Pip on canvas with
+│                      requestAnimationFrame bob, sparkle dots, and blink animation.
+│                      Sections: hero, features, how-it-works, animation states,
+│                      relationship levels, install, contributing, footer.
+│                      Buy Me a Coffee floating button. GitHub Pages compatible.
 │
 ├── mcp_config.example.json  Example MCP server configs (time, fetch, filesystem,
 │                            sequential-thinking). Copy to mcp_config.json to use.
@@ -275,6 +313,13 @@ bash build_appimage.sh   # outputs ../Pip-Companion-x86_64.AppImage
 | Right-click → Clear History | Wipe this session's conversation memory |
 | Right-click → Rename | Rename Pip |
 | Chat: "remember: X" | Save X as a sticky note without an AI call |
+| Chat: "teach: word = meaning" | Teach Pip a word; she'll use it in future conversations |
+| Chat: "bookmark: URL" | Save a URL; view later from right-click → My Bookmarks |
+| Right-click → Focus Mode | Toggle silent focus mode (pauses all idle events) |
+| Right-click → Focus Zone Timer | Start a configurable work sprint (default 25 min) |
+| Right-click → Breathing Exercise | Guided 4-7-8 breathing exercise with timed bubbles |
+| Right-click → Today's Stats | Session uptime, total chats, and current streak |
+| Right-click → My Bookmarks | Open saved bookmarks in your browser |
 
 ---
 
@@ -503,6 +548,22 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 | `last_word_day` | ISO date | Date word-of-the-day was last shown |
 | `last_challenge_day` | ISO date | Date daily challenge was last shown |
 | `last_day_quip_day` | ISO date | Date day-of-week quip was last shown |
+| `last_joke_day` | ISO date | Date code-joke was last shown |
+| `last_skill_tip_day` | ISO date | Date skill-tip was last shown |
+| `last_learn_day` | ISO date | Date daily learning prompt was last shown |
+| `user_profile` | object | `work_type`, `interests[]`, `communication_style`, `checkins[]`, `achievements_unlocked[]`, `bookmarks[]`, `vocabulary{}`, `late_nights`, `custom_greeting` |
+| `profile_complete` | bool | Whether the first-run questionnaire was completed |
+| `last_checkin_day` | ISO date | Date of last mood check-in |
+| `hydration_enabled` | bool | Whether hydration reminders are on |
+| `hydration_interval_min` | int | Minutes between hydration reminders (default 45) |
+| `eyestrain_enabled` | bool | Whether 20-20-20 reminders are on |
+| `focus_mode` | bool | Whether focus mode is currently active |
+| `quiet_hours_enabled` | bool | Whether quiet hours are configured |
+| `quiet_hours_start` | int 0–23 | Hour when quiet hours begin |
+| `quiet_hours_end` | int 0–23 | Hour when quiet hours end |
+| `custom_greeting` | string | User-set greeting override for Pip |
+| `focus_zone_minutes` | int | Duration in minutes for Focus Zone timer |
+| `pip_palette` | string | Color palette name (currently `"default"`) |
 | `created` | ISO datetime | When Pip was first run |
 | `last_seen` | ISO datetime | Last save timestamp |
 
@@ -542,7 +603,6 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 - [ ] **Screen-aware Pip** — Pip moves out of the way of full-screen windows
 - [x] **Mini-games** — Rock-Paper-Scissors, Trivia Quiz, 20 Questions
 - [x] **Custom quips** — user-editable list of random idle phrases in the Control Panel
-- [ ] **Theme editor** — change Pip's color palette in the control panel
 - [ ] **Startup on login** — add a `.desktop` autostart entry
 - [x] **Multiple bubble styles** — speech, thought (dot-chain tail), shout (spiky border)
 - [ ] **Wayland support** — test and fix `wl_surface` layering for Wayland compositors
@@ -561,6 +621,18 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 - [x] **Git commit detector** — clipboard SHA → celebratory reaction
 - [x] **System stats** — CPU/RAM commentary via psutil
 - [x] **Twin Pip** — summon a second companion that interacts with the first
+- [x] **User profiling** — first-run questionnaire, mood check-ins, achievement system, stress detection
+- [x] **Hydration & eye-strain reminders** — timed wellness nudges, configurable via Wellness tab
+- [x] **Breathing exercise** — guided 4-7-8 exercise with timed bubble steps
+- [x] **Focus mode & Focus Zone** — silent focus toggle + configurable sprint timer
+- [x] **Quiet hours** — suppress all proactive bubbles during configured hours
+- [x] **Interest-based facts** — Claude-generated facts about your stated interests
+- [x] **Skill tip / code joke / daily learning** — once-per-day AI-generated content
+- [x] **teach: / bookmark: shortcuts** — teach Pip vocabulary; save links via chat
+- [x] **Weekly recap** — Monday summary of chats, streak, and topics
+- [x] **Session stats** — right-click → today's stats bubble
+- [x] **Git activity reader** — Pip spots recent commits and cheers you on
+- [x] **Animated landing page** — `docs/index.html` for GitHub Pages; animated canvas Pip, features showcase, install section, Buy Me a Coffee button
 
 ---
 
