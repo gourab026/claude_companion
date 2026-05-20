@@ -33,3 +33,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Runtime data — personal usage state, not source
+personality.json
+mcp_config.json
