@@ -2,13 +2,16 @@
 ClaudeWorker — runs `claude -p` in a background QThread.
 
 Key design notes:
-- start_new_session=True isolates the child from Qt's installed SIGCHLD
-  handler, which would otherwise race with subprocess.communicate() and
-  cause non-deterministic "Oops" errors.
+- Prompt is fed via stdin (not as a positional argument) because
+  --allowedTools is variadic (<tools...>) and greedily consumes every
+  remaining argv token, swallowing the prompt and causing the error:
+    "Input must be provided either through stdin or as a prompt argument"
+- start_new_session=True isolates the child from Qt's SIGCHLD handler,
+  which would otherwise race with subprocess.communicate().
 - cwd=HOME avoids Claude Code picking up project CLAUDE.md from the
-  companion directory and potentially bailing on workspace-trust checks.
+  companion directory.
 - --no-session-persistence is the correct flag for scripted/automated use.
-- All output is logged to ~/.pip-companion.log for post-mortem debugging.
+- All output is logged to ~/.pip-companion.log for debugging.
 """
 
 import logging
@@ -67,25 +70,31 @@ class ClaudeWorker(QThread):
         if self._mcp_config:
             cmd += ["--mcp-config", self._mcp_config]
 
-        cmd.append(self._prompt)
+        # ── Prompt via stdin, NOT as a positional argument ────────────────────
+        # --allowedTools is variadic (<tools...>) and greedily consumes every
+        # remaining argv token, so appending the prompt after it causes the CLI
+        # to treat the prompt text as another tool name and return:
+        #   "Input must be provided either through stdin or as a prompt argument"
+        # Passing via stdin (input=) sidesteps all positional-arg parsing issues.
 
-        # Explicit env: guarantees HOME is set correctly inside the QThread
         env = os.environ.copy()
         env.setdefault("HOME", os.path.expanduser("~"))
 
         log.debug("cmd: %s", cmd)
+        log.debug("stdin: %r", self._prompt[:120])
 
         try:
             result = subprocess.run(
                 cmd,
+                input=self._prompt,            # ← prompt via stdin
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=60,
-                cwd=os.path.expanduser("~"),  # run from HOME, not companion dir
+                cwd=os.path.expanduser("~"),
                 env=env,
-                start_new_session=True,        # ← key: isolate from Qt SIGCHLD handler
+                start_new_session=True,
             )
 
             log.debug("rc=%d | stdout=%r | stderr=%r",

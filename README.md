@@ -10,6 +10,8 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 
 - Pixel-art animated character (idle bob, talking, happy, thinking, sleeping, dancing)
 - AI-powered conversation via local `claude` CLI
+- **Conversation history** — Pip remembers the last 3 exchanges within a session; right-click → Clear History to reset
+- **Mood reactions** — Pip's animation reacts to keywords in your message and her own reply (e.g. "awesome" → happy bounce, "dance" → dancing, "?" → thinking)
 - Personality that drifts and grows with every interaction
 - Random idle events (dance, sleep, quips, random thoughts)
 - Persistent speech bubbles
@@ -135,6 +137,36 @@ python main.py
 | Drag Pip | Move to any screen position (saved on release) |
 | Right-click → Control Panel | Open settings, personality editor, MCP config |
 | Right-click → Rename | Rename Pip |
+| Right-click → Clear History | Wipe this session's conversation memory |
+
+### Conversation History
+
+Pip keeps a rolling memory of the last **3 exchanges** (6 messages) within a session.
+Each time you chat, those prior turns are prepended to the prompt so Pip can reference
+what was said earlier — e.g. "what did I just ask you?" works correctly.
+
+History is **session-only** (in-memory, not saved to disk). It resets when Pip quits
+or when you choose **Clear History** from the right-click menu, which also shows
+how many turns are currently stored.
+
+The `MAX_HISTORY_TURNS = 3` constant in `main.py` controls the cap. Raise it for
+longer memory, lower it if responses feel slow (more context = longer Claude calls).
+
+### Mood Reactions
+
+Pip reads the **tone of your message** and **her own reply** and switches animation:
+
+| Trigger words | Animation |
+|---|---|
+| "great", "awesome", "love", "thank", "yay", "cool", "haha" … | Happy bounce + sparkles |
+| "dance", "party", "celebrate", "music", "sing" … | Dancing + music notes |
+| "boring", "tired", "sleepy", "meh" … | Sleepy eyes + Z's |
+| "why", "how", "explain", "what if", "?" … | Thinking (eyes up + dots) |
+| *(default while waiting)* | Thinking |
+| *(default on response)* | Talking (mouth animates) |
+
+Pip also scans **her own reply** — an enthusiastic response with "!" or "amazing"
+triggers the happy state on top of talking.
 
 ### Enabling Web Search
 
@@ -201,8 +233,6 @@ URL:  http://localhost:3000/sse
 - [ ] **Voice output** — TTS via `espeak` / `pyttsx3` / `festival` for spoken responses
 - [ ] **Voice input** — microphone button using `SpeechRecognition` or `whisper`
 - [ ] **Multiple characters** — switch between different pixel-art skins
-- [ ] **Conversation history** — multi-turn memory within a session (not just personality topics)
-- [ ] **Mood reactions** — Pip reacts visually when certain keywords appear (e.g. "great!" → HAPPY)
 - [ ] **Notification hooks** — Pip comments on desktop notifications (calendar events, mail, etc.)
 - [ ] **Screen-aware Pip** — Pip moves out of the way of full-screen windows
 - [ ] **Mini-games** — click to play rock-paper-scissors or trivia against Pip

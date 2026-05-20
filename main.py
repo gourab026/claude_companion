@@ -57,6 +57,47 @@ from control_panel import ControlPanel
 
 MCP_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_config.json")
 
+# ── Mood reaction tables ───────────────────────────────────────────────────────
+# Maps animation state → trigger words/phrases scanned in user input.
+# First match wins; order of the outer dict sets priority.
+MOOD_TRIGGERS: dict[State, list[str]] = {
+    State.HAPPY:    ["great", "awesome", "amazing", "love", "thank", "yay",
+                     "perfect", "excellent", "wonderful", "happy", "nice",
+                     "good job", "well done", "haha", "lol", "hehe", "cool"],
+    State.DANCING:  ["dance", "party", "celebrate", "woohoo", "woo", "music",
+                     "song", "sing", "jam"],
+    State.SLEEPING: ["boring", "tired", "sleepy", "zzz", "whatever", "meh"],
+    State.THINKING: ["why", "how", "explain", "what if", "could you",
+                     "tell me", "what is", "define", "?"],
+}
+
+# Words in *Claude's* reply that trigger a mood override on top of TALKING.
+RESPONSE_MOOD_TRIGGERS: dict[State, list[str]] = {
+    State.HAPPY:    ["!", "haha", "great", "awesome", "yay", "love",
+                     "exciting", "wonderful", "amazing"],
+    State.DANCING:  ["♪", "dance", "music", "party"],
+}
+
+# How many turns (user + assistant pairs) to keep in session history.
+MAX_HISTORY_TURNS = 3   # = 6 messages
+
+
+def _detect_mood(text: str) -> State | None:
+    """Return the first matching mood state for *text*, or None."""
+    lower = text.lower()
+    for state, words in MOOD_TRIGGERS.items():
+        if any(w in lower for w in words):
+            return state
+    return None
+
+
+def _detect_response_mood(text: str) -> State | None:
+    lower = text.lower()
+    for state, words in RESPONSE_MOOD_TRIGGERS.items():
+        if any(w in lower for w in words):
+            return state
+    return None
+
 
 class CompanionWindow(QWidget):
     def __init__(self):
@@ -80,6 +121,12 @@ class CompanionWindow(QWidget):
         self._worker: ClaudeWorker | None = None
         self._drag_pos: QPoint | None = None
         self._panel: ControlPanel | None = None
+
+        # Session conversation history — list of ("user"|"assistant", text).
+        # Capped at MAX_HISTORY_TURNS pairs; cleared when Pip quits or user
+        # chooses "Clear History" from the menu.
+        self._history: list[tuple[str, str]] = []
+        self._pending_user_msg: str = ""   # stored until response arrives
 
         self.setFixedSize(self._char.canvas_w, self._char.canvas_h)
 
@@ -161,15 +208,34 @@ class CompanionWindow(QWidget):
         if not ok or not text.strip():
             return
 
-        self._char.set_state(State.THINKING)
+        user_text = text.strip()
         self._bubble.hide()
 
-        allowed = self._settings.value("allowed_tools", "", type=str)
-        use_mcp = self._settings.value("use_mcp", False, type=bool)
+        # ── Mood reaction on user input ───────────────────────────────────────
+        mood = _detect_mood(user_text)
+        self._char.set_state(mood if mood else State.THINKING)
+
+        # ── Build prompt with conversation history ────────────────────────────
+        recent = self._history[-(MAX_HISTORY_TURNS * 2):]   # last N pairs
+        if recent:
+            lines = []
+            for role, msg in recent:
+                label = "Human" if role == "user" else self._personality.name
+                lines.append(f"{label}: {msg}")
+            history_block = "\n\n".join(lines)
+            full_prompt = f"{history_block}\n\nHuman: {user_text}"
+        else:
+            full_prompt = user_text
+
+        # ── Store pending message (added to history when response arrives) ────
+        self._pending_user_msg = user_text
+
+        allowed  = self._settings.value("allowed_tools", "", type=str)
+        use_mcp  = self._settings.value("use_mcp", False, type=bool)
         mcp_path = MCP_CONFIG if use_mcp and os.path.exists(MCP_CONFIG) else None
 
         self._worker = ClaudeWorker(
-            text.strip(),
+            full_prompt,
             self._personality.get_system_prompt(),
             model=self._settings.value("model", "claude-sonnet-4-6"),
             allowed_tools=allowed or None,
@@ -179,14 +245,26 @@ class CompanionWindow(QWidget):
         self._worker.error_occurred.connect(self._on_error)
         self._worker.start()
 
-        self._personality.after_interaction(text.strip())
+        self._personality.after_interaction(user_text)
 
-    def _on_response(self, text: str):
-        self._char.set_state(State.TALKING)
-        self._show_bubble(text)
+    def _on_response(self, response: str):
+        # ── Append exchange to session history ────────────────────────────────
+        if self._pending_user_msg:
+            self._history.append(("user", self._pending_user_msg))
+            self._history.append(("assistant", response))
+            self._pending_user_msg = ""
+            # Hard-cap so the list never grows unbounded
+            if len(self._history) > MAX_HISTORY_TURNS * 2 + 2:
+                self._history = self._history[-(MAX_HISTORY_TURNS * 2):]
+
+        # ── Mood reaction on Claude's reply ───────────────────────────────────
+        resp_mood = _detect_response_mood(response)
+        self._char.set_state(resp_mood if resp_mood else State.TALKING)
+        self._show_bubble(response)
         self._return_timer.start(7000)
 
     def _on_error(self, msg: str):
+        self._pending_user_msg = ""
         self._char.set_state(State.IDLE)
         self._show_bubble(f"Oops! {msg}")
         self._return_timer.start(5000)
@@ -242,9 +320,20 @@ class CompanionWindow(QWidget):
         menu.addAction(f"Chat with {self._personality.name}", self._open_chat)
         menu.addAction("Control Panel", self._open_panel)
         menu.addSeparator()
+        history_label = (f"Clear History  ({len(self._history) // 2} turns)"
+                         if self._history else "Clear History  (empty)")
+        clear_action = menu.addAction(history_label)
+        clear_action.setEnabled(bool(self._history))
+        clear_action.triggered.connect(self._clear_history)
+        menu.addSeparator()
         menu.addAction("Rename", self._rename)
         menu.addAction("Quit", QApplication.quit)
         menu.exec(pos)
+
+    def _clear_history(self):
+        self._history.clear()
+        self._pending_user_msg = ""
+        self._show_bubble("Memory cleared! Fresh start. 🧹")
 
     def _open_panel(self):
         if self._panel is None:
