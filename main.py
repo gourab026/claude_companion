@@ -59,6 +59,11 @@ from claude_client import ClaudeWorker
 from bubble import BubbleWindow, SPEECH, THOUGHT, SHOUT
 from control_panel import ControlPanel
 
+# Bubble priority levels
+BUBBLE_LOW    = 0   # idle chatter — silently dropped if a bubble is already visible
+BUBBLE_NORMAL = 1   # wellness / events — queued to show after current bubble
+BUBBLE_HIGH   = 2   # AI replies / user actions — queued at front, never dropped
+
 if getattr(sys, "frozen", False):
     _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "pip-companion")
     os.makedirs(_CONFIG_DIR, exist_ok=True)
@@ -145,6 +150,8 @@ class CompanionWindow(QWidget):
 
         self.setFixedSize(self._char.canvas_w, self._char.canvas_h)
         self._bubble = BubbleWindow()
+        self._bubble_queue: list[tuple[int, str, str]] = []   # (priority, text, style)
+        self._bubble.bubble_closed.connect(self._drain_bubble_queue)
 
         # ── Position ──────────────────────────────────────────────────────────
         screen = QApplication.primaryScreen().geometry()
@@ -358,7 +365,7 @@ class CompanionWindow(QWidget):
                     self._click_timer.start()
                 else:
                     self._char.set_state(State.HAPPY)
-                    self._show_bubble(random.choice(["wheee! ✨", "wooosh~", "wheeee!", "weee~"]))
+                    self._show_bubble(random.choice(["wheee! ✨", "wooosh~", "wheeee!", "weee~"]), priority=BUBBLE_HIGH)
                     self._return_timer.start(3000)
             self._drag_pos    = None
             self._is_dragging = False
@@ -420,7 +427,7 @@ class CompanionWindow(QWidget):
                     if word and meaning:
                         self._personality.teach_word(word, meaning)
                         self._char.set_state(State.HAPPY)
-                        self._show_bubble(f"Got it! I'll remember that \"{word}\" means \"{meaning}\" 📚", style=THOUGHT)
+                        self._show_bubble(f"Got it! I'll remember that \"{word}\" means \"{meaning}\" 📚", style=THOUGHT, priority=BUBBLE_HIGH)
                         self._return_timer.start(4000)
                 return
 
@@ -430,7 +437,7 @@ class CompanionWindow(QWidget):
                 if url:
                     self._personality.add_bookmark(url)
                     self._char.set_state(State.HAPPY)
-                    self._show_bubble(f"Bookmarked! 🔖 {url[:40]}", style=THOUGHT)
+                    self._show_bubble(f"Bookmarked! 🔖 {url[:40]}", style=THOUGHT, priority=BUBBLE_HIGH)
                     self._return_timer.start(3000)
                 return
 
@@ -441,7 +448,7 @@ class CompanionWindow(QWidget):
                 if note_text:
                     self._personality.add_note(note_text)
                     self._char.set_state(State.HAPPY)
-                    self._show_bubble(f"Got it! I'll remember: \"{note_text}\" 📌", style=THOUGHT)
+                    self._show_bubble(f"Got it! I'll remember: \"{note_text}\" 📌", style=THOUGHT, priority=BUBBLE_HIGH)
                     self._return_timer.start(5000)
                 return
 
@@ -501,7 +508,7 @@ class CompanionWindow(QWidget):
         final_state = resp_mood if resp_mood else State.TALKING
         self._char.set_state(final_state)
         self._personality.log_mood(final_state.name)
-        self._show_bubble(response)
+        self._show_bubble(response, priority=BUBBLE_HIGH)
         bubble_ms = max(6000, len(response.split()) * 300)
         self._return_timer.start(bubble_ms + 500)
         QTimer.singleShot(1000, self._check_achievements)
@@ -509,7 +516,7 @@ class CompanionWindow(QWidget):
     def _on_error(self, msg: str):
         self._pending_user_msg = ""
         self._char.set_state(State.IDLE)
-        self._show_bubble(f"Oops! {msg}")
+        self._show_bubble(f"Oops! {msg}", priority=BUBBLE_HIGH)
         self._return_timer.start(5000)
 
     # ── Daily events (word of day, challenge) ─────────────────────────────────
@@ -535,7 +542,7 @@ class CompanionWindow(QWidget):
             return
         self._char.set_state(State.THINKING)
         self._personality.log_mood("THINKING")
-        self._show_bubble(f'Word of the day: {word}\n“{defn}”', style=THOUGHT)
+        self._show_bubble(f'Word of the day: {word}\n"{defn}"', style=THOUGHT, priority=BUBBLE_NORMAL)
         self._return_timer.start(9000)
 
     def _fire_challenge(self, challenge: str):
@@ -543,7 +550,7 @@ class CompanionWindow(QWidget):
             return
         self._char.set_state(State.THINKING)
         self._personality.log_mood("THINKING")
-        self._show_bubble(f"Daily challenge 💡\n{challenge}", style=THOUGHT)
+        self._show_bubble(f"Daily challenge 💡\n{challenge}", style=THOUGHT, priority=BUBBLE_NORMAL)
         self._return_timer.start(10000)
 
     def _check_emotional(self):
@@ -568,7 +575,7 @@ class CompanionWindow(QWidget):
         }
         text, state = responses.get(mood, ("Thanks for sharing! 💙", State.HAPPY))
         self._char.set_state(state)
-        self._show_bubble(text, style=THOUGHT)
+        self._show_bubble(text, style=THOUGHT, priority=BUBBLE_HIGH)
         self._return_timer.start(6000)
 
     def _check_achievements(self):
@@ -585,7 +592,7 @@ class CompanionWindow(QWidget):
         for achievement_id, condition, message in checks:
             if condition and p.unlock_achievement(achievement_id):
                 self._char.set_state(State.HAPPY)
-                self._show_bubble(f"Achievement unlocked: {message}", style=SHOUT)
+                self._show_bubble(f"Achievement unlocked: {message}", style=SHOUT, priority=BUBBLE_HIGH)
                 self._return_timer.start(5000)
                 break  # show one at a time
 
@@ -612,7 +619,7 @@ class CompanionWindow(QWidget):
                 "Yes! Another commit! Keep going! ✨",
                 "Git commit! I felt that energy! 🕺",
             ]
-            self._show_bubble(random.choice(cheers), style=SHOUT)
+            self._show_bubble(random.choice(cheers), style=SHOUT, priority=BUBBLE_NORMAL)
             self._return_timer.start(6000)
             return
 
@@ -620,13 +627,13 @@ class CompanionWindow(QWidget):
             self._char.set_state(State.SURPRISED)
             QTimer.singleShot(600, lambda: self._char.set_state(State.THINKING))
             self._clipboard_pending = text
-            self._show_bubble("That looks like code! Click me to ask about it 💻")
+            self._show_bubble("That looks like code! Click me to ask about it 💻", priority=BUBBLE_LOW)
             self._return_timer.start(5000)
             return
 
         self._char.set_state(State.SURPRISED)
         QTimer.singleShot(800, lambda: self._char.set_state(State.HAPPY))
-        self._show_bubble("Ooh, copied something! Click me to ask about it 👀")
+        self._show_bubble("Ooh, copied something! Click me to ask about it 👀", priority=BUBBLE_LOW)
         self._return_timer.start(10_000)
 
     # ── Keyboard + screen-time tracking ──────────────────────────────────────
@@ -660,7 +667,7 @@ class CompanionWindow(QWidget):
             ]
             self._char.set_state(State.HAPPY)
             self._personality.log_mood("HAPPY")
-            self._show_bubble(random.choice(msgs))
+            self._show_bubble(random.choice(msgs), priority=BUBBLE_NORMAL)
             self._return_timer.start(8000)
             with self._keypress_lock:
                 self._last_keypress = now
@@ -678,7 +685,7 @@ class CompanionWindow(QWidget):
                     "2 hours of screen time logged. Your eyes deserve a rest 👀",
                     "Two whole hours! Time for a stretch and some water 💧",
                 ]
-                self._show_bubble(random.choice(msgs), style=SHOUT)
+                self._show_bubble(random.choice(msgs), style=SHOUT, priority=BUBBLE_NORMAL)
                 self._return_timer.start(9000)
                 QTimer.singleShot(90 * 60_000, self._reset_screen_nudge)  # re-arm after 90 min
 
@@ -733,7 +740,7 @@ class CompanionWindow(QWidget):
             ])
 
         self._personality.log_mood("HAPPY")
-        self._show_bubble(msg)
+        self._show_bubble(msg, priority=BUBBLE_NORMAL)
         self._return_timer.start(6000)
 
         if not self._personality._data.get("profile_complete", False):
@@ -742,7 +749,7 @@ class CompanionWindow(QWidget):
     def _second_pip_greet(self):
         self._char.set_state(State.HAPPY)
         greets = ["hi!! 👋", "oh, a twin!~", "heyyy~", "another me! ✨"]
-        self._show_bubble(random.choice(greets))
+        self._show_bubble(random.choice(greets), priority=BUBBLE_LOW)
         self._return_timer.start(4000)
 
     def _run_profile_questionnaire(self):
@@ -781,14 +788,14 @@ class CompanionWindow(QWidget):
         self._personality._data["profile_complete"] = True
         self._personality.save()
         self._char.set_state(State.HAPPY)
-        self._show_bubble("Nice to meet you! I'll remember that. 😊", style=THOUGHT)
+        self._show_bubble("Nice to meet you! I'll remember that. 😊", style=THOUGHT, priority=BUBBLE_HIGH)
         self._return_timer.start(4000)
 
     def _pet_pip(self):
         self._char.set_state(State.HAPPY)
         self._personality.log_mood("HAPPY")
         pets = ["hehe~ ♡", "hehe~", "*purrs*", "uwu~", "ehehe~", "*wiggles happily*", "teehee~"]
-        self._show_bubble(random.choice(pets))
+        self._show_bubble(random.choice(pets), priority=BUBBLE_LOW)
         self._return_timer.start(4000)
 
     # ── Random idle events ────────────────────────────────────────────────────
@@ -806,12 +813,12 @@ class CompanionWindow(QWidget):
             state = State[state_name] if state_name in State.__members__ else State.HAPPY
             self._char.set_state(state)
             self._personality.log_mood(state.name)
-            self._show_bubble(text)
+            self._show_bubble(text, priority=BUBBLE_LOW)
             self._return_timer.start(6000)
         elif ev == "dance":
             self._char.set_state(State.DANCING)
             self._personality.log_mood("DANCING")
-            self._show_bubble("♪ doo doo doo ♪")
+            self._show_bubble("♪ doo doo doo ♪", priority=BUBBLE_LOW)
             self._return_timer.start(8000)
         elif ev == "sleep":
             self._char.set_state(State.SLEEPING)
@@ -822,17 +829,17 @@ class CompanionWindow(QWidget):
         elif ev == "happy":
             self._char.set_state(State.HAPPY)
             self._personality.log_mood("HAPPY")
-            self._show_bubble("Yay! 🎉")
+            self._show_bubble("Yay! 🎉", priority=BUBBLE_LOW)
             self._return_timer.start(5000)
         elif ev == "think":
             self._char.set_state(State.THINKING)
             self._personality.log_mood("THINKING")
-            self._show_bubble("Hmm... 🤔")
+            self._show_bubble("Hmm... 🤔", priority=BUBBLE_LOW)
             self._return_timer.start(6000)
         elif ev == "time_greet":
             self._char.set_state(State.HAPPY)
             self._personality.log_mood("HAPPY")
-            self._show_bubble(self._personality.time_quip())
+            self._show_bubble(self._personality.time_quip(), priority=BUBBLE_LOW)
             self._return_timer.start(5000)
         elif ev == "haiku":
             self._fetch_haiku()
@@ -842,7 +849,7 @@ class CompanionWindow(QWidget):
         if day_quip and random.random() < 0.4:
             text, state_name = day_quip
             self._char.set_state(getattr(State, state_name))
-            self._show_bubble(text)
+            self._show_bubble(text, priority=BUBBLE_NORMAL)
             self._return_timer.start(5000)
             self._schedule_idle()
             return
@@ -851,7 +858,7 @@ class CompanionWindow(QWidget):
         autonomous_q = self._personality.get_autonomous_prompt()
         if autonomous_q:
             self._char.set_state(State.WAVING)
-            self._show_bubble(autonomous_q)
+            self._show_bubble(autonomous_q, priority=BUBBLE_NORMAL)
             self._return_timer.start(6000)
             self._schedule_idle()
             return
@@ -859,7 +866,7 @@ class CompanionWindow(QWidget):
         # Stress check (rare — 5% chance)
         if random.random() < 0.05 and self._personality.detect_stress():
             self._char.set_state(State.WAVING)
-            self._show_bubble("Hey — I've noticed you've been pushing yourself a lot lately. Are you taking care of yourself? 💙", style=THOUGHT)
+            self._show_bubble("Hey — I've noticed you've been pushing yourself a lot lately. Are you taking care of yourself? 💙", style=THOUGHT, priority=BUBBLE_NORMAL)
             self._return_timer.start(8000)
             self._schedule_idle()
             return
@@ -909,7 +916,7 @@ class CompanionWindow(QWidget):
     def _mutter_dream(self):
         if self._char.state != State.SLEEPING:
             return
-        self._show_bubble(random.choice(DREAM_QUIPS), style=THOUGHT)
+        self._show_bubble(random.choice(DREAM_QUIPS), style=THOUGHT, priority=BUBBLE_LOW)
 
     # ── Haiku (via Claude) ────────────────────────────────────────────────────
 
@@ -931,7 +938,7 @@ class CompanionWindow(QWidget):
     def _on_haiku_ready(self, haiku: str):
         self._char.set_state(State.THINKING)
         self._personality.log_mood("THINKING")
-        self._show_bubble(f"✦ {haiku.strip()} ✦", style=THOUGHT)
+        self._show_bubble(f"✦ {haiku.strip()} ✦", style=THOUGHT, priority=BUBBLE_LOW)
         self._return_timer.start(10000)
 
     # ── Active window watcher ─────────────────────────────────────────────────
@@ -976,7 +983,7 @@ class CompanionWindow(QWidget):
         if self._char.state != State.IDLE:
             return
         self._char.set_state(State.HAPPY)
-        self._show_bubble(random.choice(reactions))
+        self._show_bubble(random.choice(reactions), priority=BUBBLE_LOW)
         self._return_timer.start(5000)
 
     # ── Music detector (playerctl / MPRIS) ───────────────────────────────────
@@ -1015,7 +1022,7 @@ class CompanionWindow(QWidget):
             f"Now playing: {track} 🎵 bop!",
             f"♪ {track} — great taste! ♪",
         ]
-        self._show_bubble(random.choice(reactions))
+        self._show_bubble(random.choice(reactions), priority=BUBBLE_LOW)
         self._return_timer.start(7000)
 
         # 30% chance, min 10-min gap — fetch an interesting fact about the song
@@ -1058,7 +1065,7 @@ class CompanionWindow(QWidget):
             return
         self._char.set_state(State.THINKING)
         self._personality.log_mood("THINKING")
-        self._show_bubble(f"🎵 {fact.strip()}", style=THOUGHT)
+        self._show_bubble(f"🎵 {fact.strip()}", style=THOUGHT, priority=BUBBLE_LOW)
         self._return_timer.start(max(8000, len(fact.split()) * 350))
 
     # ── System stats commentator ──────────────────────────────────────────────
@@ -1089,7 +1096,7 @@ class CompanionWindow(QWidget):
                 f"Whoa — {cpu:.0f}% CPU. Compiling the universe? 💻🔥",
             ]
             self._char.set_state(State.THINKING)
-            self._show_bubble(random.choice(msgs))
+            self._show_bubble(random.choice(msgs), priority=BUBBLE_LOW)
             self._return_timer.start(6000)
         elif ram > 88:
             msgs = [
@@ -1098,7 +1105,7 @@ class CompanionWindow(QWidget):
                 f"Running low on RAM ({ram:.0f}%). Might want to free some up!",
             ]
             self._char.set_state(State.THINKING)
-            self._show_bubble(random.choice(msgs))
+            self._show_bubble(random.choice(msgs), priority=BUBBLE_LOW)
             self._return_timer.start(6000)
 
     # ── Weather ───────────────────────────────────────────────────────────────
@@ -1135,7 +1142,7 @@ class CompanionWindow(QWidget):
             return   # don't react to unknown conditions
         self._char.set_state(state)
         self._personality.log_mood(state.name)
-        self._show_bubble(msg)
+        self._show_bubble(msg, priority=BUBBLE_LOW)
         self._return_timer.start(6000)
 
     # ── Feature 1: Hydration reminder ────────────────────────────────────────
@@ -1153,7 +1160,7 @@ class CompanionWindow(QWidget):
         msgs = ["Time for some water! 💧", "Hydration check! 💧 Have you had water lately?",
                 "Psst — drink some water. I mean it. 💧", "Water break! Your brain will thank you. 💧"]
         self._char.set_state(State.HAPPY)
-        self._show_bubble(random.choice(msgs))
+        self._show_bubble(random.choice(msgs), priority=BUBBLE_NORMAL)
         self._return_timer.start(4000)
 
     # ── Feature 2: Eye-strain 20-20-20 ───────────────────────────────────────
@@ -1162,7 +1169,7 @@ class CompanionWindow(QWidget):
         if self._minimized or self._personality.is_quiet_hours() or self._focus_mode:
             return
         self._char.set_state(State.THINKING)
-        self._show_bubble("20-20-20 rule! Look at something 20 feet away for 20 seconds. 👀", style=THOUGHT)
+        self._show_bubble("20-20-20 rule! Look at something 20 feet away for 20 seconds. 👀", style=THOUGHT, priority=BUBBLE_NORMAL)
         self._return_timer.start(5000)
 
     # ── Feature 3: Focus mode ────────────────────────────────────────────────
@@ -1173,10 +1180,10 @@ class CompanionWindow(QWidget):
         self._personality.save()
         if self._focus_mode:
             self._idle_timer.stop()
-            self._show_bubble("Focus mode ON. I'll stay quiet. You've got this. 🎯", style=THOUGHT)
+            self._show_bubble("Focus mode ON. I'll stay quiet. You've got this. 🎯", style=THOUGHT, priority=BUBBLE_HIGH)
         else:
             self._schedule_idle()
-            self._show_bubble("Focus mode OFF. I'm back! 🎉", style=SPEECH)
+            self._show_bubble("Focus mode OFF. I'm back! 🎉", style=SPEECH, priority=BUBBLE_HIGH)
         self._return_timer.start(3000)
 
     # ── Feature 5: Weekly recap ───────────────────────────────────────────────
@@ -1198,7 +1205,7 @@ class CompanionWindow(QWidget):
         if top:
             msg += f", talked about: {', '.join(top)}"
         self._char.set_state(State.DANCING)
-        self._show_bubble(msg, style=THOUGHT)
+        self._show_bubble(msg, style=THOUGHT, priority=BUBBLE_NORMAL)
         self._return_timer.start(7000)
 
     # ── Feature 6: "What did I learn today?" ──────────────────────────────────
@@ -1212,7 +1219,7 @@ class CompanionWindow(QWidget):
         self._personality._data["last_learn_day"] = today
         self._personality.save()
         self._char.set_state(State.THINKING)
-        self._show_bubble("Evening question 🌙 What's one thing you learned today?", style=THOUGHT)
+        self._show_bubble("Evening question 🌙 What's one thing you learned today?", style=THOUGHT, priority=BUBBLE_NORMAL)
         self._return_timer.start(6000)
 
     # ── Feature 7: Pip's whimsical wish ──────────────────────────────────────
@@ -1227,7 +1234,7 @@ class CompanionWindow(QWidget):
             "I wish I could code for you while you sleep...",
         ]
         self._char.set_state(State.SLEEPING)
-        self._show_bubble(random.choice(wishes), style=THOUGHT)
+        self._show_bubble(random.choice(wishes), style=THOUGHT, priority=BUBBLE_LOW)
         self._return_timer.start(5000)
 
     # ── Feature 10: Interest-based random fact ───────────────────────────────
@@ -1248,7 +1255,7 @@ class CompanionWindow(QWidget):
         self._char.set_state(State.THINKING)
 
     def _on_interest_fact(self, fact: str):
-        self._show_bubble(f"💡 {fact.strip()}", style=THOUGHT)
+        self._show_bubble(f"💡 {fact.strip()}", style=THOUGHT, priority=BUBBLE_LOW)
         self._return_timer.start(8000)
 
     # ── Feature 11: Git activity reader ──────────────────────────────────────
@@ -1278,7 +1285,7 @@ class CompanionWindow(QWidget):
             f"Spotted a new commit! \"{msg}\" ✨",
         ]
         self._char.set_state(State.HAPPY)
-        self._show_bubble(random.choice(reactions))
+        self._show_bubble(random.choice(reactions), priority=BUBBLE_LOW)
         self._return_timer.start(5000)
 
     # ── Feature 12: Code joke of the day ─────────────────────────────────────
@@ -1299,7 +1306,7 @@ class CompanionWindow(QWidget):
 
     def _on_joke_ready(self, joke: str):
         self._char.set_state(State.DANCING)
-        self._show_bubble(f"😄 {joke.strip()}", style=SPEECH)
+        self._show_bubble(f"😄 {joke.strip()}", style=SPEECH, priority=BUBBLE_LOW)
         self._return_timer.start(8000)
 
     # ── Feature 13: Code detection in clipboard ───────────────────────────────
@@ -1321,12 +1328,12 @@ class CompanionWindow(QWidget):
         def _step(i=0):
             if i >= len(steps):
                 self._char.set_state(State.HAPPY)
-                self._show_bubble("Done! How do you feel? 🌿")
+                self._show_bubble("Done! How do you feel? 🌿", priority=BUBBLE_HIGH)
                 self._return_timer.start(4000)
                 return
             text, delay = steps[i]
             self._char.set_state(State.SLEEPING)
-            self._show_bubble(text, style=THOUGHT)
+            self._show_bubble(text, style=THOUGHT, priority=BUBBLE_HIGH)
             QTimer.singleShot(delay, lambda: _step(i + 1))
         _step()
 
@@ -1352,7 +1359,7 @@ class CompanionWindow(QWidget):
         self._char.set_state(State.THINKING)
 
     def _on_skill_tip(self, tip: str):
-        self._show_bubble(f"💡 Tip: {tip.strip()}", style=THOUGHT)
+        self._show_bubble(f"💡 Tip: {tip.strip()}", style=THOUGHT, priority=BUBBLE_LOW)
         self._return_timer.start(8000)
 
     # ── Feature 17: Session stats ────────────────────────────────────────────
@@ -1363,7 +1370,7 @@ class CompanionWindow(QWidget):
         uptime_min = int((time.time() - self._session_active_start) / 60)
         msg = f"📊 Stats: {interactions} total chats, {streak}-day streak, {uptime_min}min this session"
         self._char.set_state(State.HAPPY)
-        self._show_bubble(msg, style=THOUGHT)
+        self._show_bubble(msg, style=THOUGHT, priority=BUBBLE_HIGH)
         self._return_timer.start(6000)
 
     # ── Feature 20: Focus zone timer (custom interval) ───────────────────────
@@ -1371,7 +1378,7 @@ class CompanionWindow(QWidget):
     def _start_focus_zone(self):
         minutes = self._personality._data.get("focus_zone_minutes", 25)
         self._char.set_state(State.THINKING)
-        self._show_bubble(f"Focus zone: {minutes} min. You've got this! 🎯 I'll be quiet.", style=THOUGHT)
+        self._show_bubble(f"Focus zone: {minutes} min. You've got this! 🎯 I'll be quiet.", style=THOUGHT, priority=BUBBLE_HIGH)
         self._focus_mode = True
         self._idle_timer.stop()
         self._return_timer.start(3000)
@@ -1381,7 +1388,7 @@ class CompanionWindow(QWidget):
         self._focus_mode = False
         self._schedule_idle()
         self._char.set_state(State.DANCING)
-        self._show_bubble("Focus zone complete! 🎉 Amazing work — take a break!", style=SHOUT)
+        self._show_bubble("Focus zone complete! 🎉 Amazing work — take a break!", style=SHOUT, priority=BUBBLE_HIGH)
         self._return_timer.start(5000)
 
     # ── Bookmarks ─────────────────────────────────────────────────────────────
@@ -1389,7 +1396,7 @@ class CompanionWindow(QWidget):
     def _show_bookmarks(self):
         bookmarks = self._personality.get_bookmarks()
         if not bookmarks:
-            self._show_bubble("No bookmarks yet! Use \"bookmark: URL\" in chat. 🔖")
+            self._show_bubble("No bookmarks yet! Use \"bookmark: URL\" in chat. 🔖", priority=BUBBLE_HIGH)
             return
         items = [f"{b.get('title', b['url'])}" for b in bookmarks[-10:]]
         item, ok = QInputDialog.getItem(None, "My Bookmarks 🔖", "Your saved links:", items, 0, False)
@@ -1404,19 +1411,19 @@ class CompanionWindow(QWidget):
         if self._pomo_running:
             self._pomo_timer.stop()
             self._pomo_running = False
-            self._show_bubble("Pomodoro cancelled. 🍅")
+            self._show_bubble("Pomodoro cancelled. 🍅", priority=BUBBLE_HIGH)
             return
         self._pomo_running = True
         self._pomo_timer.start(25 * 60 * 1000)
         self._char.set_state(State.HAPPY)
-        self._show_bubble("Pomodoro started! 🍅 25 min. You got this.")
+        self._show_bubble("Pomodoro started! 🍅 25 min. You got this.", priority=BUBBLE_HIGH)
         self._return_timer.start(5000)
 
     def _on_pomodoro_done(self):
         self._pomo_running = False
         self._char.set_state(State.DANCING)
         self._personality.log_mood("DANCING")
-        self._show_bubble("Time's up! ⏰ Great work! Take a 5-min break 🍵", style=SHOUT)
+        self._show_bubble("Time's up! ⏰ Great work! Take a 5-min break 🍵", style=SHOUT, priority=BUBBLE_HIGH)
         self._return_timer.start(10_000)
 
     # ── Rock-Paper-Scissors ───────────────────────────────────────────────────
@@ -1438,17 +1445,17 @@ class CompanionWindow(QWidget):
             state, msg = State.DANCING, f"I picked {choices[p]}! I win! 🎉 hehehe~"
         self._char.set_state(state)
         self._personality.log_mood(state.name)
-        self._show_bubble(msg, style=SHOUT)
+        self._show_bubble(msg, style=SHOUT, priority=BUBBLE_HIGH)
         self._return_timer.start(5000)
 
     # ── Trivia quiz ───────────────────────────────────────────────────────────
 
     def _play_trivia(self):
         if self._trivia_worker and self._trivia_worker.isRunning():
-            self._show_bubble("Still thinking of a question! 🤔")
+            self._show_bubble("Still thinking of a question! 🤔", priority=BUBBLE_HIGH)
             return
         self._char.set_state(State.THINKING)
-        self._show_bubble("Let me think of a question... 🤔", style=THOUGHT)
+        self._show_bubble("Let me think of a question... 🤔", style=THOUGHT, priority=BUBBLE_HIGH)
         wins, losses = self._trivia_score
         prompt = (
             "Ask me one trivia question. Pick any interesting topic. "
@@ -1519,7 +1526,7 @@ class CompanionWindow(QWidget):
         self._char.set_state(state)
         self._personality.log_mood(state.name)
         score_line = f"\nScore: {wins}W–{losses}L"
-        self._show_bubble(judgment.strip() + score_line, style=style)
+        self._show_bubble(judgment.strip() + score_line, style=style, priority=BUBBLE_HIGH)
         self._return_timer.start(7000)
 
     # ── 20 Questions ──────────────────────────────────────────────────────────
@@ -1529,7 +1536,7 @@ class CompanionWindow(QWidget):
             return
         self._char.set_state(State.THINKING)
         self._show_bubble("I'm thinking of something... ask me yes/no questions! (up to 20) 🤔",
-                          style=THOUGHT)
+                          style=THOUGHT, priority=BUBBLE_HIGH)
         self._twentyq_count = 0
         # Claude picks the secret
         self._twentyq_worker = ClaudeWorker(
@@ -1558,7 +1565,7 @@ class CompanionWindow(QWidget):
             QLineEdit.EchoMode.Normal,
         )
         if not ok or not q.strip():
-            self._show_bubble("Game cancelled. Maybe next time! 👋")
+            self._show_bubble("Game cancelled. Maybe next time! 👋", priority=BUBBLE_HIGH)
             self._twentyq_secret = ""
             self._return_timer.start(4000)
             return
@@ -1596,18 +1603,18 @@ class CompanionWindow(QWidget):
 
         if correct_guess:
             self._char.set_state(State.DANCING)
-            self._show_bubble(f"{answer_clean} 🎉\nIt was: {self._twentyq_secret}!", style=SHOUT)
+            self._show_bubble(f"{answer_clean} 🎉\nIt was: {self._twentyq_secret}!", style=SHOUT, priority=BUBBLE_HIGH)
             self._twentyq_secret = ""
             self._return_timer.start(8000)
         elif out_of_q:
             self._char.set_state(State.HAPPY)
             self._show_bubble(f"{answer_clean}\n20 questions up! It was: {self._twentyq_secret} 😄",
-                              style=SHOUT)
+                              style=SHOUT, priority=BUBBLE_HIGH)
             self._twentyq_secret = ""
             self._return_timer.start(8000)
         else:
             self._char.set_state(State.THINKING)
-            self._show_bubble(answer_clean, style=THOUGHT)
+            self._show_bubble(answer_clean, style=THOUGHT, priority=BUBBLE_HIGH)
             remaining = 20 - self._twentyq_count
             self._return_timer.start(4000)
             QTimer.singleShot(4200, self._twentyq_next_question)
@@ -1617,7 +1624,7 @@ class CompanionWindow(QWidget):
     def _show_notes(self):
         notes = self._personality.get_notes()
         if not notes:
-            self._show_bubble("No notes yet! Start with \"remember: your note\" in chat. 📌")
+            self._show_bubble("No notes yet! Start with \"remember: your note\" in chat. 📌", priority=BUBBLE_HIGH)
             self._return_timer.start(5000)
             return
         lines = "\n".join(f"• {n['text']}" for n in notes[-8:])
@@ -1641,13 +1648,13 @@ class CompanionWindow(QWidget):
             self._second_pip.closeEvent = lambda e: e.accept()  # skip journal write for twin
             self._second_pip.close()
             self._second_pip = None
-            self._show_bubble("See you later, other me! 👋")
+            self._show_bubble("See you later, other me! 👋", priority=BUBBLE_LOW)
             self._return_timer.start(3000)
             return
         self._second_pip = CompanionWindow(is_second=True)
         self._second_pip.show()
         self._char.set_state(State.DANCING)
-        self._show_bubble("My twin is here! 🎉", style=SHOUT)
+        self._show_bubble("My twin is here! 🎉", style=SHOUT, priority=BUBBLE_NORMAL)
         self._return_timer.start(4000)
         # Occasional cross-reactions
         self._cross_react_timer = QTimer(self)
@@ -1660,7 +1667,7 @@ class CompanionWindow(QWidget):
             return
         if random.random() < 0.5:
             self._char.set_state(State.WAVING)
-            self._show_bubble(random.choice(["👋", "hey other me!", "♪~", "*waves*"]))
+            self._show_bubble(random.choice(["👋", "hey other me!", "♪~", "*waves*"]), priority=BUBBLE_LOW)
             self._return_timer.start(3000)
         else:
             self._second_pip._char.set_state(State.WAVING)
@@ -1670,14 +1677,33 @@ class CompanionWindow(QWidget):
 
     # ── Bubble ────────────────────────────────────────────────────────────────
 
-    def _show_bubble(self, text: str, style: str = SPEECH):
+    def _show_bubble(self, text: str, style: str = SPEECH,
+                     priority: int = BUBBLE_NORMAL):
         if self._minimized:
             return
+        if not self._bubble.isVisible():
+            self._show_bubble_now(text, style)
+            return
+        if priority == BUBBLE_LOW:
+            return  # ambient chatter — don't interrupt or queue
+        # Queue: insert in priority order (highest first), cap at 3 items
+        self._bubble_queue.append((priority, text, style))
+        self._bubble_queue.sort(key=lambda x: x[0], reverse=True)
+        if len(self._bubble_queue) > 3:
+            self._bubble_queue.pop()  # drop the lowest-priority tail
+
+    def _show_bubble_now(self, text: str, style: str):
         log.info("Bubble shown: style=%s len=%d", style, len(text))
         anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
         words = len(text.split())
         duration_ms = max(6000, words * 300)
         self._bubble.show_text(text, anchor, duration_ms, style=style)
+
+    def _drain_bubble_queue(self):
+        if self._minimized or not self._bubble_queue:
+            return
+        _, text, style = self._bubble_queue.pop(0)
+        self._show_bubble_now(text, style)
 
     # ── Menu ──────────────────────────────────────────────────────────────────
 
@@ -1732,7 +1758,7 @@ class CompanionWindow(QWidget):
             self._worker.quit()
             self._worker.wait(500)
         self._worker = None
-        self._show_bubble("Memory cleared! Fresh start. 🧹")
+        self._show_bubble("Memory cleared! Fresh start. 🧹", priority=BUBBLE_HIGH)
 
     def _open_panel(self):
         if self._panel is None or not self._panel.isVisible() and not self._panel.isHidden():

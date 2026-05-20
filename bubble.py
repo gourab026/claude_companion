@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QSize
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QSize, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPainterPath, QFont, QFontMetrics
 
 
@@ -24,6 +24,8 @@ SHOUT   = "shout"    # spiky border, warm background
 
 
 class BubbleWindow(QWidget):
+    bubble_closed = pyqtSignal()  # emitted when bubble hides (timer or click)
+
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.ToolTip |
                          Qt.WindowType.FramelessWindowHint |
@@ -35,13 +37,18 @@ class BubbleWindow(QWidget):
         self._style = SPEECH
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
-        self._hide_timer.timeout.connect(self.hide)
+        self._hide_timer.timeout.connect(self._on_timer_close)
 
         self._font = QFont("Sans", 11)
+
+    def _on_timer_close(self):
+        self.hide()
+        self.bubble_closed.emit()
 
     def mousePressEvent(self, event):
         self._hide_timer.stop()
         self.hide()
+        self.bubble_closed.emit()
 
     def show_text(self, text: str, anchor: QPoint, duration_ms: int = 6000,
                   style: str = SPEECH):
