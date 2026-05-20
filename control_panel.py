@@ -32,6 +32,7 @@ class ControlPanel(QWidget):
         tabs = QTabWidget()
         tabs.addTab(self._personality_tab(), "Personality")
         tabs.addTab(self._mood_tab(),        "Mood History")
+        tabs.addTab(self._journal_tab(),     "Journal")
         tabs.addTab(self._tools_tab(),       "Tools & MCP")
         tabs.addTab(self._settings_tab(),    "Settings")
         tabs.addTab(self._about_tab(),       "About")
@@ -58,9 +59,11 @@ class ControlPanel(QWidget):
         self._interactions_lbl = QLabel()
         self._mood_lbl         = QLabel()
         self._created_lbl      = QLabel()
+        self._streak_lbl       = QLabel()
         sf.addRow("Total interactions:", self._interactions_lbl)
         sf.addRow("Current mood:",       self._mood_lbl)
         sf.addRow("Companion since:",    self._created_lbl)
+        sf.addRow("Daily streak:",       self._streak_lbl)
         lo.addWidget(stats_box)
 
         # Traits
@@ -86,9 +89,21 @@ class ControlPanel(QWidget):
         tv = QVBoxLayout(topics_box)
         self._topics_view = QTextEdit()
         self._topics_view.setReadOnly(True)
-        self._topics_view.setMaximumHeight(80)
+        self._topics_view.setMaximumHeight(60)
         tv.addWidget(self._topics_view)
         lo.addWidget(topics_box)
+
+        # Custom quips
+        quips_box = QGroupBox("Custom Quips (one per line)")
+        qv = QVBoxLayout(quips_box)
+        self._quips_edit = QTextEdit()
+        self._quips_edit.setMaximumHeight(80)
+        self._quips_edit.setPlaceholderText("Type your own quips here, one per line…")
+        save_quips_btn = QPushButton("Save Custom Quips")
+        save_quips_btn.clicked.connect(self._save_custom_quips)
+        qv.addWidget(self._quips_edit)
+        qv.addWidget(save_quips_btn)
+        lo.addWidget(quips_box)
 
         # Buttons
         btns = QHBoxLayout()
@@ -101,6 +116,17 @@ class ControlPanel(QWidget):
         btns.addWidget(reset_btn)
         lo.addLayout(btns)
         lo.addStretch()
+        return w
+
+    # ═══════════════════════════════════════════ Journal tab ════════════════
+
+    def _journal_tab(self):
+        w = QWidget()
+        lo = QVBoxLayout(w)
+        lo.addWidget(QLabel("Pip's daily diary (written at the end of each session):"))
+        self._journal_view = QTextEdit()
+        self._journal_view.setReadOnly(True)
+        lo.addWidget(self._journal_view)
         return w
 
     # ═══════════════════════════════════════════ Mood History tab ════════════
@@ -267,11 +293,21 @@ class ControlPanel(QWidget):
         self._interactions_lbl.setText(str(d["interactions"]))
         self._mood_lbl.setText(d["mood"].capitalize())
         self._created_lbl.setText(d.get("created", "?")[:10])
+        streak = d.get("streak", 0)
+        self._streak_lbl.setText(f"{streak} day{'s' if streak != 1 else ''} 🔥" if streak else "0 days")
         self._humor_s.setValue(int(d["humor"]       * 100))
         self._playful_s.setValue(int(d["playfulness"] * 100))
         self._helpful_s.setValue(int(d["helpfulness"] * 100))
         topics = d.get("topics", [])
         self._topics_view.setPlainText(", ".join(topics) if topics else "(none yet)")
+        custom = d.get("custom_quips", [])
+        self._quips_edit.setPlainText("\n".join(custom))
+        journal = d.get("journal", [])
+        if journal:
+            lines = [f"{e['date']}: {e['entry']}" for e in reversed(journal[-30:])]
+            self._journal_view.setPlainText("\n".join(lines))
+        else:
+            self._journal_view.setPlainText("No entries yet — come back tomorrow!")
         self._mood_chart.set_log(d.get("mood_log", []))
         self._reload_mcp_list()
 
@@ -301,6 +337,11 @@ class ControlPanel(QWidget):
             self._p.load()
             self.refresh()
             self.settings_changed.emit()
+
+    def _save_custom_quips(self):
+        lines = self._quips_edit.toPlainText().splitlines()
+        self._p.set_custom_quips(lines)
+        QMessageBox.information(self, "Saved", "Custom quips saved!")
 
     # ═══════════════════════════════════════════ Tools actions ════════════════
 

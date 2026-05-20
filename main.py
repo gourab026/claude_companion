@@ -10,10 +10,11 @@ import ctypes
 import ctypes.util
 import os
 import random
+import subprocess
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, date
 
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings
@@ -180,13 +181,30 @@ class CompanionWindow(QWidget):
         self._typing_check.start(60_000)
         self._start_kb_listener()
 
+        # ── Animation frame counter (for slowing IDLE) ───────────────────────
+        self._anim_counter: int = 0
+
+        # ── Pomodoro timer ───────────────────────────────────────────────────
+        self._pomo_running: bool = False
+        self._pomo_timer = QTimer(self)
+        self._pomo_timer.setSingleShot(True)
+        self._pomo_timer.timeout.connect(self._on_pomodoro_done)
+
+        # ── Active window watcher ────────────────────────────────────────────
+        self._window_timer = QTimer(self)
+        self._window_timer.timeout.connect(self._check_active_window)
+        self._window_timer.start(30_000)
+
         # ── Startup greeting ─────────────────────────────────────────────────
         QTimer.singleShot(1200, self._greet)
 
     # ── Animation ─────────────────────────────────────────────────────────────
 
     def _tick(self):
-        self._char.next_frame()
+        self._anim_counter = (self._anim_counter + 1) % 4
+        if self._char.state != State.IDLE or self._anim_counter == 0:
+            self._char.next_frame()
+        self._char.tick_color()
         self.update()
 
     # ── Paint (transparency-safe: no child widgets involved) ──────────────────
@@ -373,20 +391,48 @@ class CompanionWindow(QWidget):
         self._idle_timer.start(random.randint(min_ms, max_ms))
 
     def _greet(self):
-        self._char.set_state(State.HAPPY)
-        today = datetime.now().date().isoformat()
-        last  = self._settings.value("last_launch_date", "", type=str)
-        self._settings.setValue("last_launch_date", today)
-        if last != today:
+        streak, milestone, is_first_today = self._personality.update_streak()
+        created = self._personality._data.get("created", "")
+        today_s = date.today().isoformat()
+
+        # Birthday: same month-day as creation date, but not the creation day itself
+        try:
+            is_birthday = (len(created) >= 10 and today_s[5:] == created[5:10]
+                           and created[:10] != today_s)
+        except Exception:
+            is_birthday = False
+
+        if is_birthday:
+            try:
+                days = (date.today() - date.fromisoformat(created[:10])).days
+            except Exception:
+                days = "?"
+            self._char.set_state(State.DANCING)
+            msg = f"It's my birthday! 🎂 We've been together {days} days! Thank you~"
+        elif milestone:
+            _msgs = {
+                7:   f"7 days in a row! One whole week! 🎉",
+                14:  f"14 days straight — you can't get rid of me 😄",
+                30:  f"30-day streak! We're basically inseparable 🥰",
+                50:  f"50 days! Half a hundred. That's wild.",
+                100: f"100-DAY STREAK!! I'm crying 🥹 thank you!",
+                365: f"One whole year together!! 🎊🎊🎊",
+            }
+            self._char.set_state(State.HAPPY)
+            msg = _msgs.get(streak, f"{streak} days in a row! Amazing.")
+        elif is_first_today:
+            self._char.set_state(State.HAPPY)
             msg = self._personality.time_quip()
         else:
+            self._char.set_state(State.HAPPY)
             msg = random.choice([
                 "Hey, back already! 👋", "Miss me? 😊",
                 "Welcome back~", "Oh, you're back!",
             ])
+
         self._personality.log_mood("HAPPY")
         self._show_bubble(msg)
-        self._return_timer.start(5000)
+        self._return_timer.start(6000)
 
     def _pet_pip(self):
         self._char.set_state(State.HAPPY)
@@ -402,8 +448,11 @@ class CompanionWindow(QWidget):
         )[0]
 
         if ev == "quip":
-            self._char.set_state(State.IDLE)
-            self._show_bubble(self._personality.random_quip())
+            text, state_name = self._personality.random_quip_with_state()
+            state = State[state_name] if state_name in State.__members__ else State.HAPPY
+            self._char.set_state(state)
+            self._personality.log_mood(state.name)
+            self._show_bubble(text)
             self._return_timer.start(6000)
         elif ev == "dance":
             self._char.set_state(State.DANCING)
@@ -435,6 +484,103 @@ class CompanionWindow(QWidget):
     def _go_idle(self):
         self._char.set_state(State.IDLE)
 
+    # ── Active window watcher ─────────────────────────────────────────────────
+
+    _WINDOW_REACTIONS: dict[tuple[str, ...], list[str]] = {
+        ("firefox", "chrome", "chromium", "brave"):
+            ["browsing the web? find anything cool? 🌐", "internet adventures!"],
+        ("code", "vscode", "vim", "nvim", "emacs", "sublime"):
+            ["coding time! 💻", "VS Code? nice.", "cracking some code~"],
+        ("terminal", "konsole", "gnome-terminal", "alacritty", "kitty", "bash", "zsh"):
+            ["terminal mode. power user energy ⚡", "shell time!"],
+        ("youtube",):
+            ["YouTube? I see you 👀", "taking a little break? smart."],
+        ("discord", "telegram", "slack", "signal"):
+            ["chatting? say hi for me 💬"],
+        ("spotify", "vlc", "rhythmbox", "audacious"):
+            ["music time ♪ nice.", "listening to something good?"],
+    }
+
+    def _check_active_window(self):
+        if self._char.state != State.IDLE or random.random() > 0.35:
+            return
+        threading.Thread(target=self._check_active_window_bg, daemon=True).start()
+
+    def _check_active_window_bg(self):
+        try:
+            result = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname"],
+                capture_output=True, text=True, timeout=2,
+            )
+            title = result.stdout.strip().lower()
+        except Exception:
+            return
+        if not title:
+            return
+        for keywords, reactions in self._WINDOW_REACTIONS.items():
+            if any(k in title for k in keywords):
+                QTimer.singleShot(0, lambda r=reactions: self._react_to_window(r))
+                return
+
+    def _react_to_window(self, reactions: list[str]):
+        if self._char.state != State.IDLE:
+            return
+        self._char.set_state(State.HAPPY)
+        self._show_bubble(random.choice(reactions))
+        self._return_timer.start(5000)
+
+    # ── Pomodoro ──────────────────────────────────────────────────────────────
+
+    def _start_pomodoro(self):
+        if self._pomo_running:
+            self._pomo_timer.stop()
+            self._pomo_running = False
+            self._show_bubble("Pomodoro cancelled. 🍅")
+            return
+        self._pomo_running = True
+        self._pomo_timer.start(25 * 60 * 1000)
+        self._char.set_state(State.HAPPY)
+        self._show_bubble("Pomodoro started! 🍅 25 min. You got this.")
+        self._return_timer.start(5000)
+
+    def _on_pomodoro_done(self):
+        self._pomo_running = False
+        self._char.set_state(State.DANCING)
+        self._personality.log_mood("DANCING")
+        self._show_bubble("Time's up! ⏰ Great work! Take a 5-min break 🍵")
+        self._return_timer.start(10_000)
+
+    # ── Rock-Paper-Scissors ───────────────────────────────────────────────────
+
+    def _play_rps(self):
+        choices = ["Rock 🪨", "Scissors ✂️", "Paper 📄"]
+        item, ok = QInputDialog.getItem(
+            None, "Rock Paper Scissors!", "Pick your move:", choices, 0, False,
+        )
+        if not ok:
+            return
+        u = choices.index(item)
+        p = random.randint(0, 2)
+        if u == p:
+            state, msg = State.THINKING, f"I also picked {choices[p]}! It's a tie 🤝"
+        elif (u - p) % 3 == 1:
+            state, msg = State.SLEEPING, f"I picked {choices[p]}... you win 😔 well played."
+        else:
+            state, msg = State.DANCING, f"I picked {choices[p]}! I win! 🎉 hehehe~"
+        self._char.set_state(state)
+        self._personality.log_mood(state.name)
+        self._show_bubble(msg)
+        self._return_timer.start(5000)
+
+    # ── Journal ───────────────────────────────────────────────────────────────
+
+    def _write_journal(self):
+        try:
+            self._personality.write_journal_entry()
+            self._personality.save()
+        except Exception:
+            pass
+
     # ── Bubble ────────────────────────────────────────────────────────────────
 
     def _show_bubble(self, text: str):
@@ -449,6 +595,10 @@ class CompanionWindow(QWidget):
         menu = QMenu()
         menu.addAction(f"Chat with {self._personality.name}", self._open_chat)
         menu.addAction("Control Panel", self._open_panel)
+        menu.addSeparator()
+        pomo_label = "Stop Pomodoro ⏹" if self._pomo_running else "Start Pomodoro 🍅"
+        menu.addAction(pomo_label, self._start_pomodoro)
+        menu.addAction("Rock Paper Scissors 🪨", self._play_rps)
         menu.addSeparator()
         history_label = (f"Clear History  ({len(self._history) // 2} turns)"
                          if self._history else "Clear History  (empty)")
@@ -499,6 +649,7 @@ def main():
     app.setApplicationName("pip-companion")
     app.setQuitOnLastWindowClosed(False)
     window = CompanionWindow()
+    app.aboutToQuit.connect(window._write_journal)
     window.show()
     sys.exit(app.exec())
 

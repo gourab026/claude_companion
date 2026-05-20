@@ -1,7 +1,8 @@
 import json
 import os
 import random
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, date, timedelta
 
 DATA_FILE = os.path.join(os.path.dirname(__file__), "personality.json")
 
@@ -15,6 +16,10 @@ DEFAULTS = {
     "topics": [],
     "created": datetime.now().isoformat(),
     "last_seen": datetime.now().isoformat(),
+    "streak": 0,
+    "last_launch": "",
+    "custom_quips": [],
+    "journal": [],
 }
 
 MORNING_QUIPS = [
@@ -42,20 +47,35 @@ NIGHT_QUIPS = [
     "Late night coding session? Same. 🌃",
 ]
 
-RANDOM_QUIPS = [
-    "I wonder what bugs are lurking in your code... 👀",
-    "Psst — have you taken a break recently?",
-    "♪ da da da ♪",
-    "Did you know I exist? Pretty wild.",
-    "I'm thinking about pizza. Are you?",
-    "*yawns and stretches*",
-    "Fun fact: you're doing great.",
-    "Boop.",
-    "Hey. Just checking in. Carry on.",
-    "I could really go for a nap right now.",
-    "Error 404: chill not found. Just kidding, you seem fine.",
-    "You ever just... stare at a variable name for too long?",
+# (text, animation_state_name) — state drives the animation when quip fires
+RANDOM_QUIPS: list[tuple[str, str]] = [
+    ("I wonder what bugs are lurking in your code... 👀",    "THINKING"),
+    ("Psst — have you taken a break recently?",              "HAPPY"),
+    ("♪ da da da ♪",                                        "DANCING"),
+    ("Did you know I exist? Pretty wild.",                   "HAPPY"),
+    ("I'm thinking about pizza. Are you?",                   "THINKING"),
+    ("*yawns and stretches*",                                "SLEEPING"),
+    ("Fun fact: you're doing great.",                        "HAPPY"),
+    ("Boop.",                                                "HAPPY"),
+    ("Hey. Just checking in. Carry on.",                     "HAPPY"),
+    ("I could really go for a nap right now.",               "SLEEPING"),
+    ("Error 404: chill not found. Just kidding, you seem fine.", "HAPPY"),
+    ("You ever just... stare at a variable name for too long?",  "THINKING"),
+    ("I'm getting sleepy... zzz...",                         "SLEEPING"),
+    ("♪ la la la ♪ nothing to see here ♪",                  "DANCING"),
+    ("Have you committed your code today?",                  "THINKING"),
+    ("*stretches tiny arms*",                                "HAPPY"),
+    ("You're doing great, by the way.",                      "HAPPY"),
+    ("If I were a bug, where would I hide?",                 "THINKING"),
 ]
+
+_JOURNAL_LINES: dict[str, list[str]] = {
+    "HAPPY":    ["A cheerful day! Lots of happy vibes ✨", "Good energy all day.", "Felt sunny today."],
+    "DANCING":  ["Couldn't stop dancing today 🕺", "Musical mood all day ♪", "Full-on party vibes."],
+    "SLEEPING": ["A quiet, sleepy kind of day 💤", "Very relaxed. Maybe too relaxed.", "Nap energy."],
+    "THINKING": ["Deep in thought today 🤔", "Lots of big-brain moments.", "A pensive day."],
+    "TALKING":  ["Talked a lot today! 💬", "Very chatty session.", "Lots of good conversations."],
+}
 
 
 class Personality:
@@ -92,8 +112,54 @@ class Personality:
     def mood(self):
         return self._data["mood"]
 
-    def random_quip(self):
-        return random.choice(RANDOM_QUIPS)
+    def random_quip(self) -> str:
+        text, _ = self.random_quip_with_state()
+        return text
+
+    def random_quip_with_state(self) -> tuple[str, str]:
+        """Returns (text, state_name). Custom quips default to HAPPY."""
+        custom = [(q, "HAPPY") for q in self._data.get("custom_quips", []) if q.strip()]
+        pool = RANDOM_QUIPS + custom
+        return random.choice(pool)
+
+    def set_custom_quips(self, quips: list[str]):
+        self._data["custom_quips"] = [q.strip() for q in quips if q.strip()]
+        self.save()
+
+    def update_streak(self) -> tuple[int, bool, bool]:
+        """Returns (streak, is_milestone, is_first_launch_today)."""
+        today = date.today().isoformat()
+        last  = self._data.get("last_launch", "")
+        if last == today:
+            return self._data.get("streak", 1), False, False
+        try:
+            last_date = date.fromisoformat(last) if last else None
+            if last_date and last_date == date.today() - timedelta(days=1):
+                self._data["streak"] = self._data.get("streak", 0) + 1
+            else:
+                self._data["streak"] = 1
+        except (ValueError, TypeError):
+            self._data["streak"] = 1
+        self._data["last_launch"] = today
+        streak = self._data["streak"]
+        milestone = streak in (7, 14, 30, 50, 100, 365)
+        self.save()
+        return streak, milestone, True
+
+    def write_journal_entry(self):
+        """Write today's journal entry if not already written."""
+        today = date.today().isoformat()
+        journal = self._data.setdefault("journal", [])
+        if any(e["date"] == today for e in journal):
+            return
+        mood_log = [e["s"] for e in self._data.get("mood_log", [])
+                    if e.get("t", "").startswith(today)]
+        dominant = Counter(mood_log).most_common(1)
+        dom = dominant[0][0] if dominant else "HAPPY"
+        lines = _JOURNAL_LINES.get(dom, ["Just another day on the desktop.", "Quiet day."])
+        journal.append({"date": today, "entry": random.choice(lines), "moods": len(mood_log)})
+        if len(journal) > 365:
+            self._data["journal"] = journal[-365:]
 
     def time_quip(self) -> str:
         hour = datetime.now().hour

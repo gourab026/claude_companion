@@ -52,6 +52,23 @@ FRAME_LIMITS = {
     State.DRAGGING: 4,
 }
 
+# Subtle body-color tint targets per state (R, G, B). Base BODY = (110, 95, 210).
+# Shifts are kept small (~15-30 units) so the tint is mood-readable but not jarring.
+_STATE_TINTS: dict[State, tuple[int, int, int]] = {
+    State.IDLE:     (110,  95, 210),
+    State.HAPPY:    (138, 108, 200),   # warmer, slight yellow
+    State.DANCING:  (148,  82, 220),   # pink-purple
+    State.SLEEPING: ( 85,  98, 228),   # cool blue
+    State.THINKING: ( 92,  82, 222),   # deeper blue-purple
+    State.TALKING:  (112, 102, 215),   # slight teal
+    State.DRAGGING: (122,  78, 232),   # vibrant
+}
+
+# Ratios to derive DARK and LIGHT variants from the live body color.
+# Derived from: BODY(110,95,210) → DARK(75,60,170), LIGHT(160,150,240)
+_DARK_RATIO  = (0.682, 0.632, 0.810)
+_LIGHT_RATIO = (1.455, 1.579, 1.143)
+
 
 class CharacterRenderer:
     """Stateful animation renderer. Call draw() inside a paintEvent."""
@@ -59,6 +76,7 @@ class CharacterRenderer:
     def __init__(self):
         self._state = State.IDLE
         self._frame = 0
+        self._cr, self._cg, self._cb = 110.0, 95.0, 210.0  # live tinted color
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -68,6 +86,16 @@ class CharacterRenderer:
 
     def next_frame(self):
         self._frame = (self._frame + 1) % FRAME_LIMITS.get(self._state, 4)
+
+    def tick_color(self):
+        tr, tg, tb = _STATE_TINTS.get(self._state, (110, 95, 210))
+        self._cr += (tr - self._cr) * 0.03
+        self._cg += (tg - self._cg) * 0.03
+        self._cb += (tb - self._cb) * 0.03
+        # Snap when close enough to stop unnecessary repaints
+        if abs(self._cr - tr) < 0.5: self._cr = float(tr)
+        if abs(self._cg - tg) < 0.5: self._cg = float(tg)
+        if abs(self._cb - tb) < 0.5: self._cb = float(tb)
 
     @property
     def state(self) -> State:
@@ -84,7 +112,7 @@ class CharacterRenderer:
         s, f = self._state, self._frame
 
         if s == State.IDLE:
-            bob, xoff = [0, -1, -2, -1][f % 4], 0
+            bob, xoff = [0, 0, -1, 0][f % 4], 0   # subtle 1-px breath
         elif s == State.HAPPY:
             bob, xoff = [0, -3, -5, -3][f % 4], 0
         elif s == State.DANCING:
@@ -116,13 +144,22 @@ class CharacterRenderer:
         p.fillRect(bx + 6 * PX, by + (BODY_H + 1) * PX, 8 * PX, PX, SHADE)
 
     def _body(self, p, bx, by):
+        r, g, b = int(self._cr), int(self._cg), int(self._cb)
+        body_c = QColor(r, g, b)
+        dark_c = QColor(int(r * _DARK_RATIO[0]), int(g * _DARK_RATIO[1]), int(b * _DARK_RATIO[2]))
         for row, (xs, w) in enumerate(BODY_ROWS):
             p.fillRect(bx + xs * PX, by + row * PX, w * PX, PX,
-                       DARK if row >= 10 else BODY)
+                       dark_c if row >= 10 else body_c)
 
     def _highlight(self, p, bx, by):
-        self._r(p, bx, by, 6, 1, 2, 1, LIGHT)
-        self._r(p, bx, by, 5, 2, 1, 1, LIGHT)
+        r, g, b = self._cr, self._cg, self._cb
+        light_c = QColor(
+            min(255, int(r * _LIGHT_RATIO[0])),
+            min(255, int(g * _LIGHT_RATIO[1])),
+            min(255, int(b * _LIGHT_RATIO[2])),
+        )
+        self._r(p, bx, by, 6, 1, 2, 1, light_c)
+        self._r(p, bx, by, 5, 2, 1, 1, light_c)
 
     def _eyes(self, p, bx, by, s, f):
         if s == State.SLEEPING:
