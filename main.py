@@ -57,6 +57,7 @@ from character import CharacterRenderer, State
 from personality import Personality, DREAM_QUIPS
 from claude_client import ClaudeWorker
 from bubble import BubbleWindow, SPEECH, THOUGHT, SHOUT
+from chat_input import ChatInputWidget
 from control_panel import ControlPanel
 
 # Bubble priority levels
@@ -152,6 +153,9 @@ class CompanionWindow(QWidget):
         self._bubble = BubbleWindow()
         self._bubble_queue: list[tuple[int, str, str]] = []   # (priority, text, style)
         self._bubble.bubble_closed.connect(self._drain_bubble_queue)
+
+        self._chat_input = ChatInputWidget()
+        self._chat_input.submitted.connect(self._on_chat_submitted)
 
         # ── Position ──────────────────────────────────────────────────────────
         screen = QApplication.primaryScreen().geometry()
@@ -275,6 +279,7 @@ class CompanionWindow(QWidget):
         self._minimized = not self._minimized
         if self._minimized:
             self._bubble.hide()
+            self._chat_input.hide()
             self._anim_timer.stop()
             self._idle_timer.stop()
             self._return_timer.stop()
@@ -310,6 +315,7 @@ class CompanionWindow(QWidget):
                 self._kb_listener.stop()
             except Exception:
                 pass
+        self._chat_input.hide()
         log.info("Session ended cleanly")
         event.accept()
 
@@ -405,17 +411,11 @@ class CompanionWindow(QWidget):
         if self._clipboard_pending:
             prefill = f"Explain this: {self._clipboard_pending[:400]}"
             self._clipboard_pending = ""
-        text, ok = QInputDialog.getText(
-            None, f"Talk to {self._personality.name}",
-            "Say something:",
-            QLineEdit.EchoMode.Normal,
-            prefill,
-        )
-        if not ok or not text.strip():
-            return
+        anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
+        busy = bool(self._worker and self._worker.isRunning())
+        self._chat_input.activate(anchor, prefill=prefill, busy=busy)
 
-        user_text = text.strip()
-
+    def _on_chat_submitted(self, user_text: str):
         # ── Teach / bookmark shortcuts (checked before remember) ─────────────
         lower = user_text.lower()
         for prefix in ("teach:", "teach :"):
