@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from datetime import datetime as _dt
 
 from PyQt6.QtGui import QPainter, QColor
@@ -14,6 +15,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 
 from personality import Personality, DEFAULTS
+
+LOG_FILE = os.path.join(os.path.expanduser("~"), ".pip-companion.log")
 
 
 class ControlPanel(QWidget):
@@ -280,6 +283,11 @@ class ControlPanel(QWidget):
         save_btn = QPushButton("Save Settings")
         save_btn.clicked.connect(self._save_settings)
         lo.addWidget(save_btn)
+
+        log_btn = QPushButton("Open Log File")
+        log_btn.clicked.connect(lambda: subprocess.Popen(["xdg-open", LOG_FILE]))
+        lo.addWidget(log_btn)
+
         lo.addStretch()
         return w
 

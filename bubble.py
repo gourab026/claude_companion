@@ -73,7 +73,8 @@ class BubbleWindow(QWidget):
                 lines.append(line)
 
         line_h = fm.lineSpacing()
-        text_w = min(MAX_WIDTH - PADDING_H * 2, max(fm.horizontalAdvance(l) for l in lines))
+        text_w = min(MAX_WIDTH - PADDING_H * 2,
+                     max((fm.horizontalAdvance(l) for l in lines), default=0))
         text_h = len(lines) * line_h
 
         w = text_w + PADDING_H * 2

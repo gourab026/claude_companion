@@ -15,6 +15,7 @@ Key design notes:
 """
 
 import logging
+import logging.handlers
 import os
 import shutil
 import subprocess
@@ -23,11 +24,25 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 # ── File logger (never printed to console, always available for debugging) ────
 _LOG_FILE = os.path.join(os.path.expanduser("~"), ".pip-companion.log")
-logging.basicConfig(
-    filename=_LOG_FILE,
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+_handler = logging.handlers.RotatingFileHandler(
+    _LOG_FILE,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=3,
+    encoding="utf-8",
 )
+_handler.setFormatter(_fmt)
+_handler.setLevel(logging.DEBUG)
+
+# Root logger: NullHandler so third-party libraries don't accidentally emit
+logging.getLogger().addHandler(logging.NullHandler())
+
+# Package logger carries our RotatingFileHandler
+_pkg_log = logging.getLogger("pip")
+_pkg_log.setLevel(logging.DEBUG)
+_pkg_log.addHandler(_handler)
+_pkg_log.propagate = False
+
 log = logging.getLogger(__name__)
 
 

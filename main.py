@@ -8,10 +8,13 @@ Drag        : move Pip around the screen
 
 import ctypes
 import ctypes.util
+import logging
 import os
 import random
+import signal
 import subprocess
 import sys
+import sys as _sys
 import threading
 import time
 from datetime import datetime, date
@@ -19,6 +22,21 @@ from datetime import datetime, date
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings
 from PyQt6.QtGui import QPainter
+
+
+VERSION = "1.0.0"
+
+log = logging.getLogger(__name__)
+
+
+def _except_hook(exc_type, exc_value, exc_tb):
+    logging.getLogger("pip.uncaught").critical(
+        "Uncaught exception", exc_info=(exc_type, exc_value, exc_tb)
+    )
+    _sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+_sys.excepthook = _except_hook
 
 
 def _suppress_gtk_warnings():
@@ -190,6 +208,7 @@ class CompanionWindow(QWidget):
         # No periodic raise_() — that steals focus from the user's active window.
 
         # ── Pomodoro ─────────────────────────────────────────────────────────
+        # (session start logged after all timers are initialised — see below)
         self._pomo_running: bool = False
         self._pomo_timer = QTimer(self)
         self._pomo_timer.setSingleShot(True)
@@ -222,6 +241,9 @@ class CompanionWindow(QWidget):
         else:
             QTimer.singleShot(1200, self._second_pip_greet)
 
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        log.info("Pip session started — version %s, model %s", VERSION, model)
+
     # ── Always-on-top + minimize ──────────────────────────────────────────────
 
     def _toggle_minimize(self):
@@ -230,6 +252,8 @@ class CompanionWindow(QWidget):
             self._bubble.hide()
             self._anim_timer.stop()
             self._idle_timer.stop()
+            self._return_timer.stop()
+            self._dream_timer.stop()
             self.setFixedSize(20, 20)
         else:
             self._anim_timer.start(130)
@@ -237,6 +261,32 @@ class CompanionWindow(QWidget):
             self.setFixedSize(self._char.canvas_w, self._char.canvas_h)
             self.raise_()
         self.update()
+
+    # ── Graceful shutdown ─────────────────────────────────────────────────────
+
+    def closeEvent(self, event):
+        try:
+            self._personality.write_journal_entry()
+        except Exception:
+            log.error("Error writing journal on close", exc_info=True)
+        try:
+            self._personality.save()
+        except Exception:
+            log.error("Error saving personality on close", exc_info=True)
+        for timer in (
+            self._anim_timer, self._idle_timer, self._return_timer,
+            self._click_timer, self._dream_timer, self._typing_check,
+            self._pomo_timer, self._window_timer, self._music_timer,
+            self._stats_timer,
+        ):
+            timer.stop()
+        if hasattr(self, "_kb_listener") and self._kb_listener:
+            try:
+                self._kb_listener.stop()
+            except Exception:
+                pass
+        log.info("Session ended cleanly")
+        event.accept()
 
     # ── Animation ─────────────────────────────────────────────────────────────
 
@@ -274,6 +324,8 @@ class CompanionWindow(QWidget):
                 self._click_times.clear()
                 self._click_timer.stop()
                 self._toggle_minimize()
+                return
+            if self._minimized:
                 return
             self._drag_pos     = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._press_global = event.globalPosition().toPoint()
@@ -369,10 +421,17 @@ class CompanionWindow(QWidget):
 
         self._pending_user_msg = user_text
 
+        if self._worker and self._worker.isRunning():
+            log.warning("Worker still running — disconnecting stale signals")
+            self._worker.response_ready.disconnect()
+            self._worker.error_occurred.disconnect()
+
         allowed  = self._settings.value("allowed_tools", "", type=str)
         use_mcp  = self._settings.value("use_mcp", False, type=bool)
         mcp_path = MCP_CONFIG if use_mcp and os.path.exists(MCP_CONFIG) else None
 
+        log.info("Claude call started: %r", user_text[:80])
+        self._call_start = time.time()
         self._worker = ClaudeWorker(
             full_prompt,
             self._personality.get_system_prompt(),
@@ -387,6 +446,8 @@ class CompanionWindow(QWidget):
         self._personality.after_interaction(user_text)
 
     def _on_response(self, response: str):
+        elapsed = time.time() - getattr(self, "_call_start", time.time())
+        log.info("Claude response received in %.1fs", elapsed)
         if self._pending_user_msg:
             self._history.append(("user", self._pending_user_msg))
             self._history.append(("assistant", response))
@@ -451,7 +512,8 @@ class CompanionWindow(QWidget):
         # Git commit reaction — look for commit SHA pattern in clipboard
         if _GIT_COMMIT_RE.search(text) and len(text) < 300:
             self._clipboard_pending = ""
-            self._char.set_state(State.DANCING)
+            self._char.set_state(State.SURPRISED)
+            QTimer.singleShot(600, lambda: self._char.set_state(State.DANCING))
             self._personality.log_mood("DANCING")
             cheers = [
                 "Did you just commit?! Let's gooo! 🎉",
@@ -463,6 +525,8 @@ class CompanionWindow(QWidget):
             self._return_timer.start(6000)
             return
 
+        self._char.set_state(State.SURPRISED)
+        QTimer.singleShot(800, lambda: self._char.set_state(State.HAPPY))
         self._show_bubble("Ooh, copied something! Click me to ask about it 👀")
         self._return_timer.start(10_000)
 
@@ -594,6 +658,8 @@ class CompanionWindow(QWidget):
             weights=[28, 18, 13, 16, 9, 6, 10],
         )[0]
 
+        log.info("Idle event: %s", ev)
+
         if ev == "quip":
             text, state_name = self._personality.random_quip_with_state()
             state = State[state_name] if state_name in State.__members__ else State.HAPPY
@@ -629,6 +695,25 @@ class CompanionWindow(QWidget):
             self._return_timer.start(5000)
         elif ev == "haiku":
             self._fetch_haiku()
+
+        # Day-of-week quip (fires at most once per day)
+        day_quip = self._personality.get_day_quip()
+        if day_quip and random.random() < 0.4:
+            text, state_name = day_quip
+            self._char.set_state(getattr(State, state_name))
+            self._show_bubble(text)
+            self._return_timer.start(5000)
+            self._schedule_idle()
+            return
+
+        # Autonomous question (friend+ only, 20% chance via personality)
+        autonomous_q = self._personality.get_autonomous_prompt()
+        if autonomous_q:
+            self._char.set_state(State.WAVING)
+            self._show_bubble(autonomous_q)
+            self._return_timer.start(6000)
+            self._schedule_idle()
+            return
 
         self._schedule_idle()
 
@@ -762,7 +847,7 @@ class CompanionWindow(QWidget):
             return
         parts = track.split(" — ", 1)
         if len(parts) == 2:
-            artist, title = parts[1], parts[0]   # playerctl gives "artist — title"
+            artist, title = parts[0], parts[1]   # playerctl gives "artist — title"
             prompt = (
                 f'Give me one interesting, surprising, or little-known fact about the song '
                 f'"{title}" by {artist}. '
@@ -1108,6 +1193,9 @@ class CompanionWindow(QWidget):
 
     def _spawn_second_pip(self):
         if self._second_pip and not self._second_pip.isHidden():
+            if hasattr(self, "_cross_react_timer"):
+                self._cross_react_timer.stop()
+            self._second_pip.closeEvent = lambda e: e.accept()  # skip journal write for twin
             self._second_pip.close()
             self._second_pip = None
             self._show_bubble("See you later, other me! 👋")
@@ -1128,11 +1216,11 @@ class CompanionWindow(QWidget):
             self._cross_react_timer.stop()
             return
         if random.random() < 0.5:
-            self._char.set_state(State.HAPPY)
+            self._char.set_state(State.WAVING)
             self._show_bubble(random.choice(["👋", "hey other me!", "♪~", "*waves*"]))
             self._return_timer.start(3000)
         else:
-            self._second_pip._char.set_state(State.HAPPY)
+            self._second_pip._char.set_state(State.WAVING)
             self._second_pip._show_bubble(random.choice(["hi!!", "♪", "*waves back*", "hehe~"]))
             self._second_pip._return_timer.start(3000)
         self._cross_react_timer.start(random.randint(20, 40) * 1000)
@@ -1140,6 +1228,9 @@ class CompanionWindow(QWidget):
     # ── Bubble ────────────────────────────────────────────────────────────────
 
     def _show_bubble(self, text: str, style: str = SPEECH):
+        if self._minimized:
+            return
+        log.info("Bubble shown: style=%s len=%d", style, len(text))
         anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
         words = len(text.split())
         duration_ms = max(6000, words * 300)
@@ -1185,13 +1276,18 @@ class CompanionWindow(QWidget):
         if self._worker and self._worker.isRunning():
             self._worker.response_ready.disconnect()
             self._worker.error_occurred.disconnect()
-            self._worker = None
+            self._worker.quit()
+            self._worker.wait(500)
+        self._worker = None
         self._show_bubble("Memory cleared! Fresh start. 🧹")
 
     def _open_panel(self):
+        if self._panel is None or not self._panel.isVisible() and not self._panel.isHidden():
+            self._panel = None
         if self._panel is None:
             self._panel = ControlPanel(self._personality, self._settings, MCP_CONFIG)
             self._panel.settings_changed.connect(self._on_settings_changed)
+            self._panel.destroyed.connect(lambda: setattr(self, "_panel", None))
         self._panel.refresh()
         self._panel.show()
         self._panel.raise_()
@@ -1217,6 +1313,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("pip-companion")
     app.setQuitOnLastWindowClosed(False)
+    signal.signal(signal.SIGTERM, lambda *_: app.quit())
+    signal.signal(signal.SIGINT,  lambda *_: app.quit())
     window = CompanionWindow()
     app.aboutToQuit.connect(window._write_journal)
     window.show()

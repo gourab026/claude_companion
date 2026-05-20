@@ -37,31 +37,37 @@ BODY_H = len(BODY_ROWS)  # 13 units
 
 
 class State(Enum):
-    IDLE     = auto()
-    TALKING  = auto()
-    HAPPY    = auto()
-    THINKING = auto()
-    SLEEPING = auto()
-    DANCING  = auto()
-    DRAGGING = auto()
+    IDLE      = auto()
+    TALKING   = auto()
+    HAPPY     = auto()
+    THINKING  = auto()
+    SLEEPING  = auto()
+    DANCING   = auto()
+    DRAGGING  = auto()
+    SURPRISED = auto()
+    WAVING    = auto()
 
 
 FRAME_LIMITS = {
     State.IDLE: 4, State.TALKING: 3, State.HAPPY: 4,
     State.THINKING: 2, State.SLEEPING: 4, State.DANCING: 6,
     State.DRAGGING: 4,
+    State.SURPRISED: 3,
+    State.WAVING:    4,
 }
 
 # Subtle body-color tint targets per state (R, G, B). Base BODY = (110, 95, 210).
 # Shifts are kept small (~15-30 units) so the tint is mood-readable but not jarring.
 _STATE_TINTS: dict[State, tuple[int, int, int]] = {
-    State.IDLE:     (110,  95, 210),
-    State.HAPPY:    (138, 108, 200),   # warmer, slight yellow
-    State.DANCING:  (148,  82, 220),   # pink-purple
-    State.SLEEPING: ( 85,  98, 228),   # cool blue
-    State.THINKING: ( 92,  82, 222),   # deeper blue-purple
-    State.TALKING:  (112, 102, 215),   # slight teal
-    State.DRAGGING: (122,  78, 232),   # vibrant
+    State.IDLE:      (110,  95, 210),
+    State.HAPPY:     (138, 108, 200),   # warmer, slight yellow
+    State.DANCING:   (148,  82, 220),   # pink-purple
+    State.SLEEPING:  ( 85,  98, 228),   # cool blue
+    State.THINKING:  ( 92,  82, 222),   # deeper blue-purple
+    State.TALKING:   (112, 102, 215),   # slight teal
+    State.DRAGGING:  (122,  78, 232),   # vibrant
+    State.SURPRISED: (145,  88, 215),   # bright violet
+    State.WAVING:    (118, 108, 218),   # friendly blue-purple
 }
 
 # Ratios to derive DARK and LIGHT variants from the live body color.
@@ -121,6 +127,10 @@ class CharacterRenderer:
         elif s == State.DRAGGING:
             bob  = [0, -2, 0, -2][f % 4]
             xoff = [-1, 0, 1, 0][f % 4]
+        elif s == State.SURPRISED:
+            bob, xoff = [0, -4, -6][f % 3], 0
+        elif s == State.WAVING:
+            bob, xoff = [0, -1, 0, -1][f % 4], 0
         else:
             bob, xoff = 0, 0
 
@@ -162,6 +172,11 @@ class CharacterRenderer:
         self._r(p, bx, by, 5, 2, 1, 1, light_c)
 
     def _eyes(self, p, bx, by, s, f):
+        if s == State.IDLE and f == 3:
+            # blink: draw closed eyes as thin lines
+            p.fillRect(bx + 4 * PX,  by + 6 * PX, 4 * PX, PX, PUPIL)
+            p.fillRect(bx + 12 * PX, by + 6 * PX, 4 * PX, PX, PUPIL)
+            return
         if s == State.SLEEPING:
             p.fillRect(bx + 4 * PX,  by + 5 * PX, 4 * PX, PX, PUPIL)
             p.fillRect(bx + 12 * PX, by + 5 * PX, 4 * PX, PX, PUPIL)
@@ -170,6 +185,12 @@ class CharacterRenderer:
             for ex in [4, 12]:
                 p.fillRect(bx + ex * PX,       by + 4 * PX, 4 * PX, PX, PUPIL)
                 p.fillRect(bx + (ex + 1) * PX, by + 5 * PX, 2 * PX, PX, PUPIL)
+            return
+        if s == State.SURPRISED:
+            # very wide eyes — white rect 5px tall, pupil at top
+            for ex in [3, 11]:
+                p.fillRect(bx + ex * PX,       by + 2 * PX, 5 * PX, 4 * PX, WHITE)
+                p.fillRect(bx + (ex + 1) * PX, by + 2 * PX, 3 * PX, 2 * PX, PUPIL)
             return
         pdy = 4 if s == State.THINKING else (3 if s == State.DRAGGING else 5)
         for ex in [4, 12]:
@@ -189,10 +210,14 @@ class CharacterRenderer:
         elif s == State.DRAGGING:
             self._r(p, bx, by, 7, 10, 6, 2, MOUTH)
             self._r(p, bx, by, 8, 10, 4, 1, WHITE)
-        elif s == State.HAPPY:
+        elif s == State.HAPPY or s == State.WAVING:
             self._r(p, bx, by, 6,  10, 1, 1, MOUTH)
             self._r(p, bx, by, 7,  11, 6, 1, MOUTH)
             self._r(p, bx, by, 13, 10, 1, 1, MOUTH)
+        elif s == State.SURPRISED:
+            # small "O" mouth
+            self._r(p, bx, by, 8, 10, 4, 3, MOUTH)
+            self._r(p, bx, by, 9, 10, 2, 1, WHITE)
         else:
             self._r(p, bx, by, 7,  10, 1, 1, MOUTH)
             self._r(p, bx, by, 8,  11, 4, 1, MOUTH)
@@ -226,3 +251,22 @@ class CharacterRenderer:
             for iy in [3, 6, 9]:
                 p.fillRect(bx - 3 * PX, by + iy * PX, 3 * PX, PX, SPARK)
                 p.fillRect(bx + 21 * PX, by + iy * PX, 3 * PX, PX, SPARK)
+
+        elif s == State.SURPRISED:
+            # short speed-lines radiating outward from corners
+            for iy in [3, 7, 11]:
+                p.fillRect(bx - 3 * PX, by + iy * PX, 3 * PX, PX, SPARK)
+                p.fillRect(bx + 21 * PX, by + iy * PX, 3 * PX, PX, SPARK)
+
+        elif s == State.WAVING:
+            # small hand-wave mark at top-right of body, alternates by frame
+            r, g, b = int(self._cr), int(self._cg), int(self._cb)
+            light_c = QColor(
+                min(255, int(r * _LIGHT_RATIO[0])),
+                min(255, int(g * _LIGHT_RATIO[1])),
+                min(255, int(b * _LIGHT_RATIO[2])),
+            )
+            if f in (1, 3):
+                p.fillRect(bx + 19 * PX, by - 2 * PX, 2 * PX, 3 * PX, light_c)
+            else:
+                p.fillRect(bx + 20 * PX, by - 1 * PX, 2 * PX, 3 * PX, light_c)

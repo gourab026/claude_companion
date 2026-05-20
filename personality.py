@@ -31,6 +31,7 @@ DEFAULTS = {
     "notes": [],
     "last_word_day": "",
     "last_challenge_day": "",
+    "last_day_quip_day": "",
 }
 
 MORNING_QUIPS = [
@@ -78,6 +79,16 @@ RANDOM_QUIPS: list[tuple[str, str]] = [
     ("*stretches tiny arms*",                                "HAPPY"),
     ("You're doing great, by the way.",                      "HAPPY"),
     ("If I were a bug, where would I hide?",                 "THINKING"),
+    ("Oh! You startled me! 😲",                             "SURPRISED"),
+    ("Did something just happen?? 👀",                      "SURPRISED"),
+    ("*waves enthusiastically* 👋",                         "WAVING"),
+    ("Hiii! Just wanted to say hi ✨",                      "WAVING"),
+    ("Monday already? ...I believe in you. 💪",             "HAPPY"),
+    ("It's Friday!! Weekend incoming 🎉",                   "DANCING"),
+    ("Weekend mode: activated 😌",                          "SLEEPING"),
+    ("Mid-week slump? You've got this. 🤝",                 "HAPPY"),
+    ("Just looked at the time. Carry on. ⏰",               "THINKING"),
+    ("*taps foot* ...still here, still rooting for you.",   "HAPPY"),
 ]
 
 DREAM_QUIPS: list[str] = [
@@ -165,14 +176,24 @@ class Personality:
                     self._data = {**DEFAULTS, **json.load(f)}
                 return
             except Exception:
-                pass
+                _bak = DATA_FILE + ".bak"
+                try:
+                    import shutil
+                    shutil.copy2(DATA_FILE, _bak)
+                except Exception:
+                    pass
         self._data = dict(DEFAULTS)
         self.save()
 
     def save(self):
         self._data["last_seen"] = datetime.now().isoformat()
-        with open(DATA_FILE, "w") as f:
-            json.dump(self._data, f, indent=2)
+        _tmp = DATA_FILE + ".tmp"
+        try:
+            with open(_tmp, "w") as f:
+                json.dump(self._data, f, indent=2)
+            os.replace(_tmp, DATA_FILE)
+        except OSError:
+            pass
 
     @property
     def name(self):
@@ -235,6 +256,41 @@ class Personality:
         self._data["last_challenge_day"] = today
         self.save()
         return random.choice(DAILY_CHALLENGES)
+
+    # ── Day-of-week quip ─────────────────────────────────────────────────────
+
+    def get_day_quip(self) -> tuple[str, str] | None:
+        """Returns a (text, state) day-of-week quip at most once per day."""
+        today = date.today().isoformat()
+        if self._data.get("last_day_quip_day") == today:
+            return None
+        self._data["last_day_quip_day"] = today
+        self.save()
+        dow = date.today().weekday()  # 0=Mon … 6=Sun
+        if dow == 0:
+            return ("New week, fresh start! You've got this 💪", "HAPPY")
+        elif dow == 4:
+            return ("It's FRIDAY!! Almost there 🎉", "DANCING")
+        elif dow in (5, 6):
+            return ("It's the weekend — relax a little? 🌿", "SLEEPING")
+        return None
+
+    # ── Autonomous prompt ─────────────────────────────────────────────────────
+
+    def get_autonomous_prompt(self) -> str | None:
+        """At friend+ level, occasionally ask the user a question. 20% chance."""
+        if self.relationship_level < 2:
+            return None
+        if random.random() > 0.20:
+            return None
+        prompts = [
+            "What are you working on today?",
+            "How's the project going?",
+            "Anything fun planned later?",
+            "Learning anything new lately?",
+            "What's the hardest thing you've debugged recently?",
+        ]
+        return random.choice(prompts)
 
     # ── Sticky notes ─────────────────────────────────────────────────────────
 
