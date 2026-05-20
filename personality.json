@@ -1,16 +1,103 @@
 {
   "name": "Pip",
-  "mood": "happy",
+  "mood": "curious",
   "humor": 0.6162323200733224,
   "playfulness": 0.6997374613730947,
   "helpfulness": 0.8,
-  "interactions": 8,
+  "interactions": 9,
   "topics": [
     "where",
     "search google tell",
     "bored",
-    "2026"
+    "2026",
+    "tell something interesting"
   ],
   "created": "2026-05-20T13:43:15.121728",
-  "last_seen": "2026-05-20T14:00:32.100143"
+  "last_seen": "2026-05-21T00:00:07.171944",
+  "streak": 1,
+  "last_launch": "2026-05-20",
+  "custom_quips": [],
+  "journal": [],
+  "notes": [],
+  "last_word_day": "2026-05-20",
+  "last_challenge_day": "2026-05-20",
+  "last_day_quip_day": "2026-05-21",
+  "user_profile": {
+    "work_type": "developer",
+    "interests": [
+      "Money",
+      "Music",
+      "electric guitar",
+      "travelling",
+      "nature",
+      "start business"
+    ],
+    "personality_type": "",
+    "communication_style": "casual",
+    "checkins": [
+      {
+        "date": "2026-05-20",
+        "mood": "Okay \ud83d\ude10",
+        "note": ""
+      }
+    ],
+    "late_nights": 1,
+    "long_session_count": 0,
+    "achievements_unlocked": [
+      "first_chat"
+    ],
+    "bookmarks": [],
+    "vocabulary": {},
+    "custom_greeting": ""
+  },
+  "last_checkin_day": "2026-05-20",
+  "profile_complete": true,
+  "hydration_enabled": true,
+  "hydration_interval_min": 45,
+  "eyestrain_enabled": true,
+  "focus_mode": false,
+  "quiet_hours_enabled": false,
+  "quiet_hours_start": 22,
+  "quiet_hours_end": 8,
+  "custom_greeting": "",
+  "last_joke_day": "",
+  "last_skill_tip_day": "2026-05-21",
+  "last_learn_day": "2026-05-20",
+  "last_wellness_check": "",
+  "focus_zone_minutes": 25,
+  "pip_palette": "default",
+  "mood_log": [
+    {
+      "s": "HAPPY",
+      "t": "2026-05-20T23:55:41.468177"
+    },
+    {
+      "s": "THINKING",
+      "t": "2026-05-20T23:55:57.170371"
+    },
+    {
+      "s": "DANCING",
+      "t": "2026-05-20T23:56:15.169657"
+    },
+    {
+      "s": "SLEEPING",
+      "t": "2026-05-20T23:57:27.170212"
+    },
+    {
+      "s": "HAPPY",
+      "t": "2026-05-20T23:58:42.170153"
+    },
+    {
+      "s": "HAPPY",
+      "t": "2026-05-20T23:59:00.961451"
+    },
+    {
+      "s": "HAPPY",
+      "t": "2026-05-20T23:59:15.170223"
+    },
+    {
+      "s": "DANCING",
+      "t": "2026-05-21T00:00:07.170235"
+    }
+  ]
 }
