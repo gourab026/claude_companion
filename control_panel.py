@@ -1,6 +1,8 @@
 import json
 import os
+from datetime import datetime as _dt
 
+from PyQt6.QtGui import QPainter, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QLineEdit, QSlider, QPushButton,
@@ -29,6 +31,7 @@ class ControlPanel(QWidget):
 
         tabs = QTabWidget()
         tabs.addTab(self._personality_tab(), "Personality")
+        tabs.addTab(self._mood_tab(),        "Mood History")
         tabs.addTab(self._tools_tab(),       "Tools & MCP")
         tabs.addTab(self._settings_tab(),    "Settings")
         tabs.addTab(self._about_tab(),       "About")
@@ -97,6 +100,17 @@ class ControlPanel(QWidget):
         btns.addWidget(save_btn)
         btns.addWidget(reset_btn)
         lo.addLayout(btns)
+        lo.addStretch()
+        return w
+
+    # ═══════════════════════════════════════════ Mood History tab ════════════
+
+    def _mood_tab(self):
+        w = QWidget()
+        lo = QVBoxLayout(w)
+        lo.addWidget(QLabel("Today's mood activity (updates when Pip reacts):"))
+        self._mood_chart = MoodChart(self._p._data.get("mood_log", []))
+        lo.addWidget(self._mood_chart)
         lo.addStretch()
         return w
 
@@ -258,6 +272,7 @@ class ControlPanel(QWidget):
         self._helpful_s.setValue(int(d["helpfulness"] * 100))
         topics = d.get("topics", [])
         self._topics_view.setPlainText(", ".join(topics) if topics else "(none yet)")
+        self._mood_chart.set_log(d.get("mood_log", []))
         self._reload_mcp_list()
 
     # ═══════════════════════════════════════════ Personality actions ══════════
@@ -482,6 +497,70 @@ class McpServerDialog(QDialog):
         else:
             cfg = {"url": self._url.text().strip()}
         return name, cfg
+
+
+# ═══════════════════════════════════════ Mood chart ══════════════════════════
+
+class MoodChart(QWidget):
+    _COLORS = {
+        "HAPPY":    QColor(255, 215,  50),
+        "DANCING":  QColor(200, 120, 240),
+        "TALKING":  QColor(110, 200, 140),
+        "THINKING": QColor(140, 190, 255),
+        "SLEEPING": QColor(180, 210, 255),
+    }
+    _ORDER = ["HAPPY", "DANCING", "TALKING", "THINKING", "SLEEPING"]
+
+    def __init__(self, mood_log: list, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(140)
+        self._counts: dict[str, int] = {}
+        self.set_log(mood_log)
+
+    def set_log(self, mood_log: list):
+        today = _dt.now().date().isoformat()
+        counts = {k: 0 for k in self._ORDER}
+        for entry in mood_log:
+            s = entry.get("s", "")
+            if entry.get("t", "").startswith(today) and s in counts:
+                counts[s] += 1
+        self._counts = counts
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        if sum(self._counts.values()) == 0:
+            p.setPen(QColor(150, 150, 150))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                       "No mood data yet today.\nInteract with Pip to see stats!")
+            return
+
+        w, h   = self.width(), self.height()
+        pad    = 16
+        label_h = 18
+        bar_area_h = h - pad * 2 - label_h
+        n      = len(self._ORDER)
+        slot_w = (w - pad * 2) // n
+        bar_w  = max(8, slot_w - 10)
+        max_c  = max(self._counts.values()) or 1
+
+        for i, name in enumerate(self._ORDER):
+            count  = self._counts[name]
+            bar_h  = int(count / max_c * bar_area_h)
+            x      = pad + i * slot_w + (slot_w - bar_w) // 2
+            y      = pad + bar_area_h - bar_h
+            color  = self._COLORS[name]
+
+            if bar_h > 0:
+                p.fillRect(x, y, bar_w, bar_h, color)
+
+            p.setPen(QColor(80, 80, 80))
+            p.drawText(x, pad + bar_area_h + label_h - 2, name[:4])
+            if count:
+                p.setPen(QColor(40, 40, 40))
+                p.drawText(x + 2, y - 3, str(count))
 
 
 # ═══════════════════════════════════════ Helpers ═════════════════════════════

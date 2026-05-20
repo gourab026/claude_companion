@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "time": {
+      "command": "uvx",
+      "args": ["mcp-server-time", "--local-timezone", "Asia/Kolkata"],
+      "_note": "Lets Pip tell you the current time in any timezone. Install: pip install uvx"
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"],
+      "_note": "Lets Pip browse URLs and read web pages. Requires Node.js."
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/USER/Documents"],
+      "_note": "Lets Pip read files in the given directory. Replace USER with your username."
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "_note": "Gives Pip step-by-step reasoning for complex problems. Requires Node.js."
+    }
+  }
+}

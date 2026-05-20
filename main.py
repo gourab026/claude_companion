@@ -11,6 +11,9 @@ import ctypes.util
 import os
 import random
 import sys
+import threading
+import time
+from datetime import datetime
 
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings
@@ -120,6 +123,8 @@ class CompanionWindow(QWidget):
         self._char        = CharacterRenderer()
         self._worker: ClaudeWorker | None = None
         self._drag_pos: QPoint | None = None
+        self._press_global: QPoint = QPoint()
+        self._is_dragging: bool = False
         self._panel: ControlPanel | None = None
 
         # Session conversation history — list of ("user"|"assistant", text).
@@ -156,6 +161,28 @@ class CompanionWindow(QWidget):
         self._return_timer.setSingleShot(True)
         self._return_timer.timeout.connect(self._go_idle)
 
+        # ── Double-click guard (delays open_chat to allow pet detection) ──────
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.setInterval(250)
+        self._click_timer.timeout.connect(self._open_chat)
+
+        # ── Clipboard watcher ────────────────────────────────────────────────
+        self._clipboard_pending: str = ""
+        self._last_clipboard: str = ""
+        QApplication.instance().clipboard().dataChanged.connect(self._on_clipboard_change)
+
+        # ── Typing-aware idle ────────────────────────────────────────────────
+        self._last_keypress: float = time.time()
+        self._keypress_lock = threading.Lock()
+        self._typing_check = QTimer(self)
+        self._typing_check.timeout.connect(self._check_typing_idle)
+        self._typing_check.start(60_000)
+        self._start_kb_listener()
+
+        # ── Startup greeting ─────────────────────────────────────────────────
+        QTimer.singleShot(1200, self._greet)
+
     # ── Animation ─────────────────────────────────────────────────────────────
 
     def _tick(self):
@@ -177,33 +204,53 @@ class CompanionWindow(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos    = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._press_global = event.globalPosition().toPoint()
+            self._is_dragging  = False
         elif event.button() == Qt.MouseButton.RightButton:
             self._show_menu(event.globalPosition().toPoint())
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self._drag_pos is not None:
-                moved = (event.globalPosition().toPoint()
-                         - self.frameGeometry().topLeft() - self._drag_pos)
-                if moved.manhattanLength() < 6:
-                    self._open_chat()
-            self._drag_pos = None
+                if not self._is_dragging:
+                    self._click_timer.start()
+                else:
+                    self._char.set_state(State.HAPPY)
+                    self._show_bubble(random.choice(["wheee! ✨", "wooosh~", "wheeee!", "weee~"]))
+                    self._return_timer.start(3000)
+            self._drag_pos    = None
+            self._is_dragging = False
             self._settings.setValue("x", self.x())
             self._settings.setValue("y", self.y())
 
     def mouseMoveEvent(self, event):
         if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            if not self._is_dragging:
+                delta = event.globalPosition().toPoint() - self._press_global
+                if delta.manhattanLength() >= 6:
+                    self._is_dragging = True
+                    self._char.set_state(State.DRAGGING)
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             self._bubble.hide()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._click_timer.stop()
+            self._pet_pip()
 
     # ── Chat ──────────────────────────────────────────────────────────────────
 
     def _open_chat(self):
+        prefill = ""
+        if self._clipboard_pending:
+            prefill = f"Explain this: {self._clipboard_pending[:400]}"
+            self._clipboard_pending = ""
         text, ok = QInputDialog.getText(
             None, f"Talk to {self._personality.name}",
             "Say something:",
             QLineEdit.EchoMode.Normal,
+            prefill,
         )
         if not ok or not text.strip():
             return
@@ -254,14 +301,17 @@ class CompanionWindow(QWidget):
             self._history.append(("assistant", response))
             self._pending_user_msg = ""
             # Hard-cap so the list never grows unbounded
-            if len(self._history) > MAX_HISTORY_TURNS * 2 + 2:
+            if len(self._history) > MAX_HISTORY_TURNS * 2:
                 self._history = self._history[-(MAX_HISTORY_TURNS * 2):]
 
         # ── Mood reaction on Claude's reply ───────────────────────────────────
         resp_mood = _detect_response_mood(response)
-        self._char.set_state(resp_mood if resp_mood else State.TALKING)
+        final_state = resp_mood if resp_mood else State.TALKING
+        self._char.set_state(final_state)
+        self._personality.log_mood(final_state.name)
         self._show_bubble(response)
-        self._return_timer.start(7000)
+        bubble_ms = max(6000, len(response.split()) * 300)
+        self._return_timer.start(bubble_ms + 500)
 
     def _on_error(self, msg: str):
         self._pending_user_msg = ""
@@ -271,15 +321,84 @@ class CompanionWindow(QWidget):
 
     # ── Idle events ───────────────────────────────────────────────────────────
 
+    # ── Clipboard watcher ─────────────────────────────────────────────────────
+
+    def _on_clipboard_change(self):
+        text = QApplication.instance().clipboard().text().strip()
+        if len(text) < 30 or text == self._last_clipboard:
+            return
+        if self._char.state not in (State.IDLE, State.HAPPY):
+            return
+        self._last_clipboard    = text
+        self._clipboard_pending = text
+        self._show_bubble("Ooh, copied something! Click me to ask about it 👀")
+        self._return_timer.start(10_000)
+
+    # ── Typing-aware idle ─────────────────────────────────────────────────────
+
+    def _start_kb_listener(self):
+        try:
+            from pynput import keyboard
+            def _on_press(key):
+                with self._keypress_lock:
+                    self._last_keypress = time.time()
+            self._kb_listener = keyboard.Listener(on_press=_on_press, daemon=True)
+            self._kb_listener.start()
+        except Exception:
+            self._kb_listener = None
+
+    def _check_typing_idle(self):
+        if self._char.state in (State.SLEEPING, State.THINKING, State.TALKING):
+            return
+        with self._keypress_lock:
+            last = self._last_keypress
+        idle_min = (time.time() - last) / 60
+        if idle_min >= 20:
+            msgs = [
+                "Hey... you've been quiet. Taking a break? 🍵",
+                "You seem away. Hope everything's ok!",
+                "No typing for a while... stretch time? 🧘",
+                "Still there? Just checking in ✨",
+            ]
+            self._char.set_state(State.HAPPY)
+            self._personality.log_mood("HAPPY")
+            self._show_bubble(random.choice(msgs))
+            self._return_timer.start(8000)
+            with self._keypress_lock:
+                self._last_keypress = time.time()
+
     def _schedule_idle(self):
         min_ms = self._settings.value("idle_min", 30, type=int) * 1000
         max_ms = self._settings.value("idle_max", 90, type=int) * 1000
         self._idle_timer.start(random.randint(min_ms, max_ms))
 
+    def _greet(self):
+        self._char.set_state(State.HAPPY)
+        today = datetime.now().date().isoformat()
+        last  = self._settings.value("last_launch_date", "", type=str)
+        self._settings.setValue("last_launch_date", today)
+        if last != today:
+            msg = self._personality.time_quip()
+        else:
+            msg = random.choice([
+                "Hey, back already! 👋", "Miss me? 😊",
+                "Welcome back~", "Oh, you're back!",
+            ])
+        self._personality.log_mood("HAPPY")
+        self._show_bubble(msg)
+        self._return_timer.start(5000)
+
+    def _pet_pip(self):
+        self._char.set_state(State.HAPPY)
+        self._personality.log_mood("HAPPY")
+        pets = ["hehe~ ♡", "hehe~", "*purrs*", "uwu~", "ehehe~", "*wiggles happily*", "teehee~"]
+        self._show_bubble(random.choice(pets))
+        self._return_timer.start(4000)
+
     def _random_event(self):
         ev = random.choices(
-            ["quip", "dance", "sleep", "happy", "think"],
-            weights=[35, 20, 15, 20, 10],
+            ["quip", "dance", "sleep", "happy", "think", "time_greet"],
+            weights=[30, 20, 15, 18, 10, 7],
         )[0]
 
         if ev == "quip":
@@ -288,19 +407,28 @@ class CompanionWindow(QWidget):
             self._return_timer.start(6000)
         elif ev == "dance":
             self._char.set_state(State.DANCING)
+            self._personality.log_mood("DANCING")
             self._show_bubble("♪ doo doo doo ♪")
             self._return_timer.start(8000)
         elif ev == "sleep":
             self._char.set_state(State.SLEEPING)
+            self._personality.log_mood("SLEEPING")
             self._return_timer.start(12000)
         elif ev == "happy":
             self._char.set_state(State.HAPPY)
+            self._personality.log_mood("HAPPY")
             self._show_bubble("Yay! 🎉")
             self._return_timer.start(5000)
         elif ev == "think":
             self._char.set_state(State.THINKING)
+            self._personality.log_mood("THINKING")
             self._show_bubble("Hmm... 🤔")
             self._return_timer.start(6000)
+        elif ev == "time_greet":
+            self._char.set_state(State.HAPPY)
+            self._personality.log_mood("HAPPY")
+            self._show_bubble(self._personality.time_quip())
+            self._return_timer.start(5000)
 
         self._schedule_idle()
 
@@ -311,7 +439,9 @@ class CompanionWindow(QWidget):
 
     def _show_bubble(self, text: str):
         anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
-        self._bubble.show_text(text, anchor)
+        words = len(text.split())
+        duration_ms = max(6000, words * 300)  # ~200 wpm reading speed
+        self._bubble.show_text(text, anchor, duration_ms)
 
     # ── Menu ──────────────────────────────────────────────────────────────────
 
@@ -333,6 +463,10 @@ class CompanionWindow(QWidget):
     def _clear_history(self):
         self._history.clear()
         self._pending_user_msg = ""
+        if self._worker and self._worker.isRunning():
+            self._worker.response_ready.disconnect()
+            self._worker.error_occurred.disconnect()
+            self._worker = None
         self._show_bubble("Memory cleared! Fresh start. 🧹")
 
     def _open_panel(self):

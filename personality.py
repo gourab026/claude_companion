@@ -17,6 +17,31 @@ DEFAULTS = {
     "last_seen": datetime.now().isoformat(),
 }
 
+MORNING_QUIPS = [
+    "Good morning! Ready to code? ☀️",
+    "Rise and shine~",
+    "Morning! Coffee first, bugs second ☕",
+    "A new day! Let's make it good.",
+]
+AFTERNOON_QUIPS = [
+    "Good afternoon!",
+    "Afternoon slump hitting? I got you. 😴",
+    "How's the day going so far?",
+    "Hey — don't forget to stretch.",
+]
+EVENING_QUIPS = [
+    "Good evening! Still at it?",
+    "Winding down for the day? 🌅",
+    "Evening! Hope today was productive.",
+    "Almost done for the day?",
+]
+NIGHT_QUIPS = [
+    "Still up late? 🌙",
+    "Night owl mode activated 🦉",
+    "Psst... it's pretty late, you know...",
+    "Late night coding session? Same. 🌃",
+]
+
 RANDOM_QUIPS = [
     "I wonder what bugs are lurking in your code... 👀",
     "Psst — have you taken a break recently?",
@@ -69,6 +94,23 @@ class Personality:
 
     def random_quip(self):
         return random.choice(RANDOM_QUIPS)
+
+    def time_quip(self) -> str:
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            return random.choice(MORNING_QUIPS)
+        elif 12 <= hour < 17:
+            return random.choice(AFTERNOON_QUIPS)
+        elif 17 <= hour < 21:
+            return random.choice(EVENING_QUIPS)
+        else:
+            return random.choice(NIGHT_QUIPS)
+
+    def log_mood(self, state_name: str):
+        log = self._data.setdefault("mood_log", [])
+        log.append({"s": state_name, "t": datetime.now().isoformat()})
+        if len(log) > 300:
+            self._data["mood_log"] = log[-300:]
 
     def get_system_prompt(self):
         d = self._data

@@ -8,17 +8,30 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 
 ## Features
 
-- Pixel-art animated character (idle bob, talking, happy, thinking, sleeping, dancing)
+### Core
+- Pixel-art animated character with 7 states: idle bob, talking, happy, thinking, sleeping, dancing, dragging
 - AI-powered conversation via local `claude` CLI
-- **Conversation history** — Pip remembers the last 3 exchanges within a session; right-click → Clear History to reset
-- **Mood reactions** — Pip's animation reacts to keywords in your message and her own reply (e.g. "awesome" → happy bounce, "dance" → dancing, "?" → thinking)
-- Personality that drifts and grows with every interaction
-- Random idle events (dance, sleep, quips, random thoughts)
-- Persistent speech bubbles
-- Draggable and always-on-top
-- Control panel for personality, tools, MCP servers, and settings
-- Web search support via `--allowedTools`
-- Custom MCP server connections (stdio and HTTP/SSE)
+- Persistent speech bubbles that scale duration to text length — click a bubble to dismiss it early
+- Draggable and always-on-top; position saved on release
+
+### Personality & Mood
+- **Mood reactions** — animation reacts to keywords in your message and Pip's own reply
+- **Personality drift** — humor and playfulness shift slightly with every 5 interactions
+- **Conversation history** — Pip remembers the last 3 exchanges per session
+- **Mood history chart** — Control Panel shows today's mood breakdown as a bar chart
+
+### Fun Interactions
+- **Time-aware greetings** — Pip says good morning / afternoon / evening / night on first launch of the day; "welcome back" on subsequent launches
+- **Double-click to pet Pip** — triggers a happy reaction and a "hehe~ ♡" bubble, no AI call needed
+- **Drag reaction** — Pip shows a surprised DRAGGING face with speed lines; says "wheee! ✨" on drop
+- **Clipboard watcher** — when you copy something substantial (80+ chars), Pip offers to explain it; click Pip to accept with the text pre-filled in the chat
+- **Typing-aware idle** — if you stop typing for 20+ minutes, Pip checks in with a break reminder
+- **Random idle events** — dance, sleep, quips, time-aware check-ins, and random thoughts fire on a configurable timer
+
+### Tools & Integration
+- Web search support via `--allowedTools WebSearch,WebFetch`
+- Custom MCP server connections (stdio and HTTP/SSE) managed via the Control Panel
+- Fun MCP presets in `mcp_config.example.json` (time, fetch, filesystem, sequential-thinking)
 
 ---
 
@@ -28,14 +41,14 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 ┌─────────────────────────────────────────────────────────┐
 │                     User Desktop                        │
 │                                                         │
-│   ┌──────────────┐     click / drag / right-click       │
+│   ┌──────────────┐  left-click / double-click / drag    │
 │   │  Pip Window  │ ◄────────────────────────────────    │
 │   │ (transparent │                                       │
 │   │  QWidget)    │  paintEvent clears to transparent,   │
 │   │              │  then CharacterRenderer draws        │
 │   │    [Pip]     │  directly into the window painter.   │
 │   └──────┬───────┘                                       │
-│          │ left-click                                    │
+│          │ left-click (single)                          │
 │          ▼                                               │
 │   ┌──────────────┐    ┌────────────────────────────┐    │
 │   │  Chat input  │───►│      ClaudeWorker           │    │
@@ -45,14 +58,15 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 │   ┌──────────────┐    │    "claude -p"              │    │
 │   │ Speech Bubble│◄───│    --model ...              │    │
 │   │ (top-level   │    │    --system-prompt ...      │    │
-│   │  QWidget)    │    │    --allowedTools ...       │    │
-│   └──────────────┘    │    --mcp-config ...         │    │
-│                       │  )                          │    │
+│   │  QWidget,    │    │    --allowedTools ...       │    │
+│   │  click=hide) │    │    --mcp-config ...         │    │
+│   └──────────────┘    │  )                          │    │
 │                       └────────────────────────────┘    │
 │                                                         │
-│   personality.json  ←──  Personality class              │
-│   mcp_config.json   ←──  Control Panel MCP tab          │
-│   QSettings         ←──  Control Panel Settings tab     │
+│   pynput listener  ──►  _last_keypress (typing idle)    │
+│   QClipboard signal ─►  _clipboard_pending (watcher)    │
+│   personality.json  ──►  mood_log, traits, topics       │
+│   QSettings         ──►  model, idle interval, position │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -72,14 +86,15 @@ to transparent, then `CompositionMode_SourceOver` to paint the character on top.
 companion/
 ├── main.py            Entry point. CompanionWindow owns all timers and state.
 │                      Draws character directly in its paintEvent.
+│                      Handles clipboard watcher and pynput keyboard listener.
 │
 ├── character.py       CharacterRenderer — pure drawing class (not a QWidget).
-│                      Holds animation state machine + frame counters.
-│                      Called by CompanionWindow.paintEvent.
+│                      7-state animation machine: IDLE, TALKING, HAPPY, THINKING,
+│                      SLEEPING, DANCING, DRAGGING.
 │
 ├── personality.py     Personality — loads/saves personality.json.
-│                      Tracks mood, traits, interaction count, topics.
-│                      Generates the system prompt passed to Claude.
+│                      Tracks mood, traits, interaction count, topics, mood_log.
+│                      Generates system prompt. Provides time_quip() and log_mood().
 │
 ├── claude_client.py   ClaudeWorker (QThread) — runs `claude -p` in background.
 │                      Supports --allowedTools and --mcp-config flags.
@@ -87,23 +102,27 @@ companion/
 │
 ├── bubble.py          BubbleWindow — separate top-level transparent QWidget.
 │                      Draws a rounded-rect speech bubble with a tail.
-│                      Auto-sizes to text, auto-hides after a timer.
+│                      Click to dismiss. Duration scales with word count.
 │
-├── control_panel.py   ControlPanel QWidget with 4 tabs:
-│                        Personality — name, traits, mood, topics, reset
-│                        Tools & MCP — web search toggle, MCP server manager
-│                        Settings    — model, idle interval, position reset
-│                        About       — help text
+├── control_panel.py   ControlPanel QWidget with 5 tabs:
+│                        Personality    — name, traits, mood, topics, reset
+│                        Mood History   — bar chart of today's mood events
+│                        Tools & MCP    — web search toggle, MCP server manager
+│                        Settings       — model, idle interval, position reset
+│                        About          — help text
 │                      McpServerDialog — add/edit stdio or HTTP MCP servers.
+│
+├── mcp_config.example.json  Example MCP server configs (time, fetch, filesystem,
+│                            sequential-thinking). Copy to mcp_config.json to use.
 │
 ├── personality.json   Auto-created on first run. Stores name, mood,
 │                      humor/playfulness/helpfulness, interaction count,
-│                      topics list, and creation date.
+│                      topics list, mood_log, and timestamps. (gitignored)
 │
 ├── mcp_config.json    Auto-created when you add an MCP server via the
-│                      Control Panel. Passed to `claude --mcp-config`.
+│                      Control Panel. Passed to `claude --mcp-config`. (gitignored)
 │
-└── requirements.txt   PyQt6>=6.4.0
+└── requirements.txt   PyQt6>=6.4.0, pynput>=1.7.0
 ```
 
 ---
@@ -111,8 +130,8 @@ companion/
 ## Installation
 
 ```bash
-# 1. Install Python dependency
-pip install PyQt6
+# 1. Install Python dependencies
+pip install PyQt6 pynput
 
 # 2. Make sure Claude Code CLI is installed and authenticated
 claude --version     # should print a version number
@@ -125,6 +144,10 @@ python main.py
 
 > A compositor (picom, KWin, Mutter, etc.) must be running for transparency to work.
 > On bare X11 without a compositor, the window background will appear black.
+>
+> pynput requires access to `/dev/input` or X11 event hooks. If the typing-idle feature
+> doesn't work, try running with `sudo` or add your user to the `input` group:
+> `sudo usermod -aG input $USER` (logout/login required).
 
 ---
 
@@ -133,28 +156,45 @@ python main.py
 | Action | Result |
 |--------|--------|
 | Left-click Pip | Open chat input |
+| Double-click Pip | Pet Pip — happy reaction, no AI call |
 | Right-click Pip | Context menu |
-| Drag Pip | Move to any screen position (saved on release) |
+| Drag Pip | Move to any screen position; "wheee!" on drop |
+| Click speech bubble | Dismiss it early |
 | Right-click → Control Panel | Open settings, personality editor, MCP config |
 | Right-click → Rename | Rename Pip |
 | Right-click → Clear History | Wipe this session's conversation memory |
 
+### Clipboard Watcher
+
+When you copy text longer than 80 characters, Pip pops up and offers to explain it.
+Left-click Pip within ~10 seconds to open the chat with the clipboard content pre-filled.
+Pip won't interrupt you if she's already mid-conversation.
+
+### Typing-Aware Idle
+
+If no keyboard activity is detected for **20 minutes**, Pip pops up with a break reminder.
+This resets after each reminder so it doesn't spam. Requires pynput to be installed and
+have keyboard access. If pynput fails to start, the feature silently disables itself.
+
+### Time-Aware Greetings
+
+On the **first launch of each day** Pip greets you based on the time of day:
+- 5 am – 12 pm → "Good morning! Ready to code? ☀️"
+- 12 pm – 5 pm → "Afternoon slump hitting? I got you."
+- 5 pm – 9 pm → "Good evening! Still at it?"
+- 9 pm – 5 am → "Still up late? 🌙"
+
+On **subsequent launches the same day** she says "Hey, back already!" instead.
+
 ### Conversation History
 
 Pip keeps a rolling memory of the last **3 exchanges** (6 messages) within a session.
-Each time you chat, those prior turns are prepended to the prompt so Pip can reference
-what was said earlier — e.g. "what did I just ask you?" works correctly.
-
-History is **session-only** (in-memory, not saved to disk). It resets when Pip quits
-or when you choose **Clear History** from the right-click menu, which also shows
-how many turns are currently stored.
-
-The `MAX_HISTORY_TURNS = 3` constant in `main.py` controls the cap. Raise it for
-longer memory, lower it if responses feel slow (more context = longer Claude calls).
+History is session-only (in-memory). It resets when Pip quits or via **Clear History**.
+The `MAX_HISTORY_TURNS = 3` constant in `main.py` controls the cap.
 
 ### Mood Reactions
 
-Pip reads the **tone of your message** and **her own reply** and switches animation:
+Pip reads the tone of your message and her own reply and switches animation:
 
 | Trigger words | Animation |
 |---|---|
@@ -162,11 +202,15 @@ Pip reads the **tone of your message** and **her own reply** and switches animat
 | "dance", "party", "celebrate", "music", "sing" … | Dancing + music notes |
 | "boring", "tired", "sleepy", "meh" … | Sleepy eyes + Z's |
 | "why", "how", "explain", "what if", "?" … | Thinking (eyes up + dots) |
+| *(dragging)* | Surprised wide eyes + speed lines |
 | *(default while waiting)* | Thinking |
 | *(default on response)* | Talking (mouth animates) |
 
-Pip also scans **her own reply** — an enthusiastic response with "!" or "amazing"
-triggers the happy state on top of talking.
+### Mood History Chart
+
+Open **Control Panel → Mood History** to see a colour-coded bar chart of how many times
+each mood appeared today. Data is stored in `personality.json` and updates live as you
+interact with Pip.
 
 ### Enabling Web Search
 
@@ -174,27 +218,19 @@ Open **Control Panel → Tools & MCP**, check **Enable Web Search**, and click
 **Save Tool Settings**. This passes `--allowedTools WebSearch,WebFetch` to the
 Claude CLI so Pip can browse the web when answering questions.
 
-### Adding an MCP Server
+### Fun MCP Servers
 
-1. Open **Control Panel → Tools & MCP**
-2. Check **Enable MCP servers**
-3. Click **Add Server**
-4. Choose **stdio** (local command) or **HTTP/SSE** (remote URL)
-5. Fill in the command/URL and optional args/env
-6. Click **OK**, then **Save MCP Settings**
+Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
+**Control Panel → Tools & MCP** to unlock extra abilities:
 
-Example stdio server (filesystem access):
-```
-Name:    filesystem
-Command: npx
-Args:    -y @modelcontextprotocol/server-filesystem /home/user/docs
-```
+| Server | What it does | Requires |
+|--------|-------------|---------|
+| `time` | Pip knows the current time in any timezone | `pip install uvx` |
+| `fetch` | Pip can read any URL/webpage | Node.js |
+| `filesystem` | Pip can read files in a directory you specify | Node.js |
+| `sequential-thinking` | Step-by-step reasoning for complex problems | Node.js |
 
-Example HTTP server:
-```
-Name: my-api
-URL:  http://localhost:3000/sse
-```
+Or add your own via the Control Panel — supports both stdio (local command) and HTTP/SSE.
 
 ---
 
@@ -211,6 +247,7 @@ URL:  http://localhost:3000/sse
 | `helpfulness` | float 0–1 | How much detail Pip gives on technical questions |
 | `interactions` | int | Total conversation count |
 | `topics` | list[str] | Up to 30 recent topics discussed |
+| `mood_log` | list[obj] | Up to 300 recent mood events `{s, t}` for the history chart |
 | `created` | ISO datetime | When Pip was first run |
 | `last_seen` | ISO datetime | Last save timestamp |
 
@@ -223,6 +260,7 @@ URL:  http://localhost:3000/sse
 | `idle_max` | `90` | Max seconds between random idle events |
 | `allowed_tools` | `""` | Comma-separated tool names (e.g. `WebSearch,WebFetch`) |
 | `use_mcp` | `false` | Whether to pass `--mcp-config` to Claude |
+| `last_launch_date` | `""` | ISO date of last launch (for daily greeting) |
 | `x` / `y` | bottom-right | Saved window position |
 
 ---
@@ -236,7 +274,7 @@ URL:  http://localhost:3000/sse
 - [ ] **Notification hooks** — Pip comments on desktop notifications (calendar events, mail, etc.)
 - [ ] **Screen-aware Pip** — Pip moves out of the way of full-screen windows
 - [ ] **Mini-games** — click to play rock-paper-scissors or trivia against Pip
-- [ ] **Custom quips** — user-editable list of random idle phrases
+- [ ] **Custom quips** — user-editable list of random idle phrases in the Control Panel
 - [ ] **Theme editor** — change Pip's color palette in the control panel
 - [ ] **Startup on login** — add a `.desktop` autostart entry
 - [ ] **Multiple bubble styles** — round, square, thought-bubble variants
@@ -248,13 +286,12 @@ URL:  http://localhost:3000/sse
 
 ## TODO — Optimizations
 
-- [ ] **Dirty-rect repaints** — only repaint the region that actually changed (currently repaints entire canvas every frame)
-- [ ] **Pre-rasterize frames** — render each animation frame to a `QPixmap` once at startup and blit from cache instead of re-running draw calls every tick
-- [ ] **Adaptive frame rate** — slow animation timer to ~2 fps when idle/sleeping, speed up to 8 fps only during active states
-- [ ] **Background worker pool** — reuse a single `QThread` instead of creating a new `ClaudeWorker` per request
-- [ ] **Subprocess warm-up** — pre-launch the Claude process and keep stdin open to avoid cold-start latency on every message
-- [ ] **Debounce idle reschedule** — avoid restarting `_idle_timer` redundantly on rapid settings changes
-- [ ] **Bubble text caching** — cache the laid-out lines so `_update_geometry` only re-runs when text changes, not on every `show_text` call
-- [ ] **Memory cap on topics list** — currently capped at 30 but no deduplication by semantic similarity; add fuzzy dedup
-- [ ] **Reduce QSettings writes** — batch position saves; currently writes on every mouseRelease even if position didn't change
-- [ ] **Lazy-import control panel** — import `control_panel.py` only when the user first opens it to cut startup time
+- [ ] **Dirty-rect repaints** — only repaint the region that actually changed
+- [ ] **Pre-rasterize frames** — cache each animation frame to a `QPixmap` at startup
+- [ ] **Adaptive frame rate** — slow to ~2 fps when idle/sleeping, speed up during active states
+- [ ] **Background worker pool** — reuse a single `QThread` instead of a new one per request
+- [ ] **Subprocess warm-up** — keep Claude process warm to avoid cold-start latency
+- [ ] **Debounce idle reschedule** — avoid restarting `_idle_timer` on rapid settings changes
+- [ ] **Bubble text caching** — cache laid-out lines so `_update_geometry` only re-runs on text change
+- [ ] **Reduce QSettings writes** — batch position saves; currently writes on every mouseRelease
+- [ ] **Lazy-import control panel** — import `control_panel.py` only when first opened

@@ -26,6 +26,10 @@ class BubbleWindow(QWidget):
 
         self._font = QFont("Sans", 11)
 
+    def mousePressEvent(self, event):
+        self._hide_timer.stop()
+        self.hide()
+
     def show_text(self, text: str, anchor: QPoint, duration_ms: int = 6000):
         self._text = text
         self._update_geometry(anchor)
