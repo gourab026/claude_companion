@@ -38,7 +38,7 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 - **Random idle events** — dance, sleep, quips, haiku, time-aware greetings fire on a configurable timer; each quip drives its matching animation
 - **Pip's haiku** — random idle event: Pip generates a fresh 5-7-5 haiku via Claude in a thought bubble
 - **Active window watcher** — every 30 s Pip peeks at the active window title and comments (browser, coding, terminal, YouTube, Discord, Spotify…)
-- **Music detector** — reads the active MPRIS player via `playerctl` every 45 s; Pip dances and names the track when a new song starts
+- **Music detector** — reads the active MPRIS player via `playerctl` every 45 s; Pip dances and names the track when a new song starts; with 30 % chance (and a 10-min minimum gap) Pip fetches an interesting fact about the song or artist via Claude and shows it in a thought bubble
 - **System stats commentator** — checks CPU/RAM via `psutil` every 5 min; reacts with concern when usage spikes above 85 %
 - **Weather reactions** — fetches local weather from `wttr.in` once per session; Pip's mood and bubble match the conditions
 - **Pomodoro timer** — 25-min focus session from the right-click menu; SHOUT bubble when done
@@ -298,11 +298,18 @@ When a random sleep event fires, Pip enters SLEEPING state for ~12 seconds. Afte
 A random idle event (10% weight) triggers Pip to ask Claude for a coding-themed haiku.
 While Claude is thinking, Pip shows THINKING state. The haiku appears in a thought bubble.
 
-### Music Detector
+### Music Detector & Song Facts
 
 Every 45 seconds Pip runs `playerctl metadata` in a background thread. When a new track
-starts playing she switches to DANCING and names the song. Silently skips if `playerctl`
-is not installed.
+starts playing she switches to DANCING and names the song.
+
+With a **30 % chance** (and a minimum 10-minute gap between facts) Pip fires a background
+Claude call asking for one surprising fact about that song or artist. The fact appears
+8 seconds later in a **thought bubble** — after the dance reaction has faded — so it
+never collides with the initial greeting. If Pip doesn't recognise the song she falls
+back to a fact about the artist.
+
+Silently skips if `playerctl` is not installed (`sudo apt install playerctl`).
 
 ### System Stats Commentator
 
@@ -433,7 +440,14 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 
 ## TODO — Features to Add
 
-- [ ] **Tray icon** — system tray icon with quick-chat popup and show/hide toggle
+### Cross-platform
+
+- [ ] **Windows support** — replace `xdotool` with `pywin32` (`win32gui`) for window watcher; replace `playerctl` with Windows Media Control API (`winsdk`); PyInstaller → `.exe`; ship as a zip or NSIS installer
+- [ ] **macOS support** — replace `xdotool` with `pyobjc` / AppleScript for window watcher; replace `playerctl` with AppleScript (`osascript`) or `pyobjc-framework-MediaPlayer` for Spotify/Music; PyInstaller → `.app` bundle → `hdiutil` → `.dmg`
+- [ ] **CI build matrix** — GitHub Actions workflow that builds AppImage (Linux), `.exe` (Windows), `.dmg` (macOS) on every tag
+
+### Features
+- [x] **Music detector + song facts** — playerctl/MPRIS track detection; random Claude fact about the song/artist in a thought bubble (30 % chance, 10-min gap)
 - [ ] **Voice output** — TTS via `espeak` / `pyttsx3` / `festival` for spoken responses
 - [ ] **Voice input** — microphone button using `SpeechRecognition` or `whisper`
 - [ ] **Multiple characters** — switch between different pixel-art skins

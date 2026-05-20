@@ -196,7 +196,9 @@ class CompanionWindow(QWidget):
         self._music_timer = QTimer(self)
         self._music_timer.timeout.connect(self._check_music)
         self._music_timer.start(45_000)
-        self._last_music_title: str = ""
+        self._last_music_title: str       = ""
+        self._song_fact_worker: ClaudeWorker | None = None
+        self._last_song_fact_time: float  = 0.0   # epoch; enforces 10-min gap
 
         self._stats_timer = QTimer(self)
         self._stats_timer.timeout.connect(self._check_stats)
@@ -699,6 +701,49 @@ class CompanionWindow(QWidget):
         ]
         self._show_bubble(random.choice(reactions))
         self._return_timer.start(7000)
+
+        # 30% chance, min 10-min gap — fetch an interesting fact about the song
+        now = time.time()
+        if (random.random() < 0.30
+                and now - self._last_song_fact_time > 600
+                and not (self._song_fact_worker and self._song_fact_worker.isRunning())):
+            QTimer.singleShot(8000, lambda t=track: self._fetch_song_fact(t))
+
+    def _fetch_song_fact(self, track: str):
+        if self._char.state not in (State.IDLE, State.DANCING, State.HAPPY):
+            return
+        parts = track.split(" — ", 1)
+        if len(parts) == 2:
+            artist, title = parts[1], parts[0]   # playerctl gives "artist — title"
+            prompt = (
+                f'Give me one interesting, surprising, or little-known fact about the song '
+                f'"{title}" by {artist}. '
+                f'1-2 sentences only. If you\'re unsure about this exact song, share a '
+                f'fascinating fact about {artist} instead. '
+                f'No intro phrases like "Did you know".'
+            )
+        else:
+            prompt = (
+                f'Give me one surprising fact about "{track}" (song or artist). '
+                f'1-2 sentences, no intro phrases.'
+            )
+        self._song_fact_worker = ClaudeWorker(
+            prompt,
+            "You are a music trivia expert. Be concise and genuinely interesting.",
+            model=self._settings.value("model", "claude-sonnet-4-6"),
+        )
+        self._song_fact_worker.response_ready.connect(self._on_song_fact_ready)
+        self._song_fact_worker.error_occurred.connect(lambda _: None)
+        self._song_fact_worker.start()
+
+    def _on_song_fact_ready(self, fact: str):
+        self._last_song_fact_time = time.time()
+        if self._char.state not in (State.IDLE, State.HAPPY, State.THINKING):
+            return
+        self._char.set_state(State.THINKING)
+        self._personality.log_mood("THINKING")
+        self._show_bubble(f"🎵 {fact.strip()}", style=THOUGHT)
+        self._return_timer.start(max(8000, len(fact.split()) * 350))
 
     # ── System stats commentator ──────────────────────────────────────────────
 
