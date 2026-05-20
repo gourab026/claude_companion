@@ -1,4 +1,4 @@
-# Pip — Pixel-Art Desktop Companion [![Claude Code](https://shields.io)](https://code.claude.com)
+# Pip — Pixel-Art Desktop Companion ![Static Badge](https://img.shields.io/badge/claude-code-orange)
 
 A transparent, always-on-top desktop companion for Linux that lives on your screen,
 talks to you through the Claude Code CLI, and develops a personality over time.
