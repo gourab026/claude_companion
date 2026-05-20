@@ -33,6 +33,7 @@ class ControlPanel(QWidget):
         tabs.addTab(self._personality_tab(), "Personality")
         tabs.addTab(self._mood_tab(),        "Mood History")
         tabs.addTab(self._journal_tab(),     "Journal")
+        tabs.addTab(self._notes_tab(),       "Notes 📌")
         tabs.addTab(self._tools_tab(),       "Tools & MCP")
         tabs.addTab(self._settings_tab(),    "Settings")
         tabs.addTab(self._about_tab(),       "About")
@@ -56,14 +57,16 @@ class ControlPanel(QWidget):
         # Stats
         stats_box = QGroupBox("Stats")
         sf = QFormLayout(stats_box)
-        self._interactions_lbl = QLabel()
-        self._mood_lbl         = QLabel()
-        self._created_lbl      = QLabel()
-        self._streak_lbl       = QLabel()
+        self._interactions_lbl  = QLabel()
+        self._mood_lbl          = QLabel()
+        self._created_lbl       = QLabel()
+        self._streak_lbl        = QLabel()
+        self._relationship_lbl  = QLabel()
         sf.addRow("Total interactions:", self._interactions_lbl)
         sf.addRow("Current mood:",       self._mood_lbl)
         sf.addRow("Companion since:",    self._created_lbl)
         sf.addRow("Daily streak:",       self._streak_lbl)
+        sf.addRow("Relationship:",       self._relationship_lbl)
         lo.addWidget(stats_box)
 
         # Traits
@@ -116,6 +119,27 @@ class ControlPanel(QWidget):
         btns.addWidget(reset_btn)
         lo.addLayout(btns)
         lo.addStretch()
+        return w
+
+    # ═══════════════════════════════════════════ Notes tab ══════════════════
+
+    def _notes_tab(self):
+        w = QWidget()
+        lo = QVBoxLayout(w)
+        lo.addWidget(QLabel(
+            "Notes saved via chat (\"remember: your note\").\n"
+            "Select a note and press Delete to remove it."
+        ))
+        self._notes_list = QListWidget()
+        lo.addWidget(self._notes_list)
+        btns = QHBoxLayout()
+        del_btn   = QPushButton("Delete Selected")
+        clear_btn = QPushButton("Clear All")
+        del_btn.clicked.connect(self._delete_selected_note)
+        clear_btn.clicked.connect(self._clear_all_notes)
+        btns.addWidget(del_btn)
+        btns.addWidget(clear_btn)
+        lo.addLayout(btns)
         return w
 
     # ═══════════════════════════════════════════ Journal tab ════════════════
@@ -295,6 +319,9 @@ class ControlPanel(QWidget):
         self._created_lbl.setText(d.get("created", "?")[:10])
         streak = d.get("streak", 0)
         self._streak_lbl.setText(f"{streak} day{'s' if streak != 1 else ''} 🔥" if streak else "0 days")
+        self._relationship_lbl.setText(
+            f"{self._p.relationship_label}  ({d.get('interactions', 0)} interactions)"
+        )
         self._humor_s.setValue(int(d["humor"]       * 100))
         self._playful_s.setValue(int(d["playfulness"] * 100))
         self._helpful_s.setValue(int(d["helpfulness"] * 100))
@@ -310,6 +337,12 @@ class ControlPanel(QWidget):
             self._journal_view.setPlainText("No entries yet — come back tomorrow!")
         self._mood_chart.set_log(d.get("mood_log", []))
         self._reload_mcp_list()
+        # Notes
+        self._notes_list.clear()
+        for note in self._p.get_notes():
+            ts = note.get("t", "")[:16].replace("T", " ")
+            item = QListWidgetItem(f"[{ts}]  {note['text']}")
+            self._notes_list.addItem(item)
 
     # ═══════════════════════════════════════════ Personality actions ══════════
 
@@ -337,6 +370,20 @@ class ControlPanel(QWidget):
             self._p.load()
             self.refresh()
             self.settings_changed.emit()
+
+    def _delete_selected_note(self):
+        row = self._notes_list.currentRow()
+        if row >= 0:
+            self._p.clear_note(row)
+            self.refresh()
+
+    def _clear_all_notes(self):
+        if QMessageBox.question(
+            self, "Clear Notes", "Delete all saved notes?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        ) == QMessageBox.StandardButton.Yes:
+            self._p.clear_all_notes()
+            self.refresh()
 
     def _save_custom_quips(self):
         lines = self._quips_edit.toPlainText().splitlines()
