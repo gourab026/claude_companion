@@ -6,6 +6,8 @@ Right-click : menu  →  Control Panel / Rename / Quit
 Drag        : move Pip around the screen
 """
 
+import ctypes
+import ctypes.util
 import os
 import random
 import sys
@@ -13,6 +15,39 @@ import sys
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings
 from PyQt6.QtGui import QPainter
+
+
+def _suppress_gtk_warnings():
+    """
+    Silence harmless GTK CSS theme warnings like:
+      Gtk-WARNING **: Theme parsing error: gtk.css:N: 'border-spacing' is not a valid property
+    These come from the system GTK theme using CSS properties not supported by
+    the installed GTK version — they are cosmetic noise, not errors.
+    We install a no-op GLib log handler for the 'Gtk' domain at WARNING level.
+    The callback is stored on the function to prevent GC.
+    """
+    try:
+        glib = ctypes.CDLL("libglib-2.0.so.0")
+        G_LOG_LEVEL_WARNING = 1 << 4
+        handler_t = ctypes.CFUNCTYPE(
+            None,                 # return void
+            ctypes.c_char_p,      # log_domain
+            ctypes.c_int,         # log_level
+            ctypes.c_char_p,      # message
+            ctypes.c_void_p,      # user_data
+        )
+        _suppress_gtk_warnings._cb = handler_t(lambda *_: None)
+        glib.g_log_set_handler(
+            b"Gtk",
+            G_LOG_LEVEL_WARNING,
+            _suppress_gtk_warnings._cb,
+            None,
+        )
+    except Exception:
+        pass   # non-Linux or glib not found — silently skip
+
+
+_suppress_gtk_warnings()  # must run before QApplication()
 
 from character import CharacterRenderer, State
 from personality import Personality
