@@ -59,7 +59,12 @@ from claude_client import ClaudeWorker
 from bubble import BubbleWindow
 from control_panel import ControlPanel
 
-MCP_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_config.json")
+if getattr(sys, "frozen", False):
+    _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "pip-companion")
+    os.makedirs(_CONFIG_DIR, exist_ok=True)
+    MCP_CONFIG = os.path.join(_CONFIG_DIR, "mcp_config.json")
+else:
+    MCP_CONFIG = os.path.join(os.path.dirname(__file__), "mcp_config.json")
 
 # ── Mood reaction tables ───────────────────────────────────────────────────────
 # Maps animation state → trigger words/phrases scanned in user input.

@@ -37,3 +37,8 @@ Thumbs.db
 # Runtime data — personal usage state, not source
 personality.json
 mcp_config.json
+
+# Build artifacts
+AppDir/
+*.AppImage
+claude_session.txt

@@ -1,10 +1,18 @@
 import json
 import os
 import random
+import sys
 from collections import Counter
 from datetime import datetime, date, timedelta
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "personality.json")
+# When frozen by PyInstaller, keep user data in ~/.config/pip-companion/ so
+# it survives updates. During normal dev, keep it next to the source file.
+if getattr(sys, "frozen", False):
+    _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "pip-companion")
+    os.makedirs(_CONFIG_DIR, exist_ok=True)
+    DATA_FILE = os.path.join(_CONFIG_DIR, "personality.json")
+else:
+    DATA_FILE = os.path.join(os.path.dirname(__file__), "personality.json")
 
 DEFAULTS = {
     "name": "Pip",
