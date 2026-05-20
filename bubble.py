@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QRect
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QSize
 from PyQt6.QtGui import QPainter, QColor, QPainterPath, QFont, QFontMetrics
 
 
@@ -11,8 +11,11 @@ SHOUT_BORDER  = QColor(200, 80, 60, 220)
 THOUGHT_BG    = QColor(240, 240, 255, 230)
 THOUGHT_BORDER= QColor(100, 120, 200, 180)
 TAIL_H        = 10   # tail triangle height in px
-PADDING       = 12
-MAX_WIDTH     = 280
+PADDING_H     = 14   # left/right padding
+PADDING_V     = 12   # top/bottom padding
+MAX_WIDTH     = 300
+# kept for external code that may import PADDING
+PADDING       = PADDING_H
 
 # Style constants
 SPEECH  = "speech"   # default rounded bubble with triangle tail
@@ -54,10 +57,13 @@ class BubbleWindow(QWidget):
         lines = []
         for paragraph in self._text.split("\n"):
             words = paragraph.split()
+            if not words:
+                lines.append("")
+                continue
             line = ""
             for w in words:
                 test = (line + " " + w).strip()
-                if fm.horizontalAdvance(test) > MAX_WIDTH - PADDING * 2:
+                if fm.horizontalAdvance(test) > MAX_WIDTH - PADDING_H * 2:
                     if line:
                         lines.append(line)
                     line = w
@@ -66,12 +72,12 @@ class BubbleWindow(QWidget):
             if line:
                 lines.append(line)
 
-        line_h = fm.height() + 2
-        text_w = min(MAX_WIDTH - PADDING * 2, max(fm.horizontalAdvance(l) for l in lines))
+        line_h = fm.lineSpacing()
+        text_w = min(MAX_WIDTH - PADDING_H * 2, max(fm.horizontalAdvance(l) for l in lines))
         text_h = len(lines) * line_h
 
-        w = text_w + PADDING * 2
-        h = text_h + PADDING * 2 + TAIL_H
+        w = text_w + PADDING_H * 2
+        h = text_h + PADDING_V * 2 + TAIL_H
 
         x = anchor.x() - w // 2
         y = anchor.y() - h
@@ -81,10 +87,10 @@ class BubbleWindow(QWidget):
         x = max(4, min(x, screen.width() - w - 4))
         y = max(4, y)
 
-        self._lines  = lines
-        self._line_h = line_h
-        self._text_w = text_w
-        self._text_h = text_h
+        self._lines   = lines
+        self._line_h  = line_h
+        self._text_w  = text_w
+        self._text_h  = text_h
         self.setFixedSize(w, h)
         self.move(x, y)
 
@@ -102,9 +108,11 @@ class BubbleWindow(QWidget):
         # Draw text (common to all styles)
         p.setPen(BUBBLE_TEXT)
         p.setFont(self._font)
-        y = PADDING
+        flags = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        y = PADDING_V
         for line in self._lines:
-            p.drawText(PADDING, y + self._line_h - 4, line)
+            rect = QRect(PADDING_H, y, self._text_w, self._line_h)
+            p.drawText(rect, flags, line)
             y += self._line_h
 
     def _paint_speech(self, p: QPainter):

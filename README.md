@@ -12,7 +12,8 @@ talks to you through the Claude Code CLI, and develops a personality over time.
 - Pixel-art animated character with 7 states: idle bob, talking, happy, thinking, sleeping, dancing, dragging
 - AI-powered conversation via local `claude` CLI
 - Persistent speech bubbles (3 styles: speech, thought, shout) — click to dismiss early, duration scales with word count
-- Draggable and always-on-top; position saved on release
+- Draggable and always-on-top via `WindowStaysOnTopHint`; never steals focus from the user's active window
+- **Triple-click to minimize** — triple-click Pip to shrink her to a tiny purple dot; triple-click the dot to restore
 - **Mood color tinting** — Pip's body color slowly lerps to match the current mood state
 
 ### Personality & Mood
@@ -150,6 +151,8 @@ companion/
 │                      thought (rounded + dot-chain tail, blue tint),
 │                      shout (spiky star-burst border, warm tint).
 │                      Click to dismiss. Duration scales with word count.
+│                      Text rendered via QRect + AlignVCenter for consistent margins
+│                      (PADDING_H=14 left/right, PADDING_V=12 top/bottom, MAX_WIDTH=300).
 │
 ├── control_panel.py   ControlPanel QWidget with 7 tabs:
 │                        Personality    — name, traits, mood, topics, custom quips,
@@ -240,6 +243,7 @@ bash build_appimage.sh   # outputs ../Pip-Companion-x86_64.AppImage
 |--------|--------|
 | Left-click Pip | Open chat input |
 | Double-click Pip | Pet Pip — happy reaction, no AI call |
+| Triple-click Pip | Minimize to tiny purple dot (triple-click dot to restore) |
 | Right-click Pip | Context menu |
 | Drag Pip | Move to any screen position; "wheee!" on drop |
 | Click speech bubble | Dismiss it early |
@@ -347,6 +351,15 @@ Right-click → **Summon Twin**. A second identical Pip window appears next to t
 original. Every 20–40 seconds they exchange waves, music notes, or greetings. Right-click
 → **Dismiss Twin** to close the second window.
 
+### Triple-Click to Minimize
+
+Triple-clicking Pip within 600 ms shrinks her window to a **20×20 purple dot** — useful
+when she's in the way but you don't want to quit. The animation and idle timers pause,
+and the bubble hides. Triple-clicking the dot restores full size and resumes all timers.
+
+Qt generates `mousePressEvent → mouseDoubleClickEvent → mousePressEvent` for a triple
+click, so click timestamps are tracked in both handlers.
+
 ### Mood Color Tinting
 
 Pip's body color lerps (3 % per animation tick) toward a per-state target:
@@ -450,6 +463,7 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 - [x] **Music detector + song facts** — playerctl/MPRIS track detection; random Claude fact about the song/artist in a thought bubble (30 % chance, 10-min gap)
 - [ ] **Voice output** — TTS via `espeak` / `pyttsx3` / `festival` for spoken responses
 - [ ] **Voice input** — microphone button using `SpeechRecognition` or `whisper`
+- [x] **Triple-click to minimize** — shrinks to a 20×20 dot; triple-click to restore
 - [ ] **Multiple characters** — switch between different pixel-art skins
 - [ ] **Notification hooks** — Pip comments on desktop notifications (calendar events, mail, etc.)
 - [ ] **Screen-aware Pip** — Pip moves out of the way of full-screen windows
@@ -485,6 +499,7 @@ Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
 - [ ] **Background worker pool** — reuse a single `QThread` instead of a new one per request
 - [ ] **Subprocess warm-up** — keep Claude process warm to avoid cold-start latency
 - [ ] **Debounce idle reschedule** — avoid restarting `_idle_timer` on rapid settings changes
+- [x] **Bubble text margins** — QRect-based drawText with AlignVCenter; consistent PADDING_H/V; MAX_WIDTH 300
 - [ ] **Bubble text caching** — cache laid-out lines so `_update_geometry` only re-runs on text change
 - [ ] **Reduce QSettings writes** — batch position saves; currently writes on every mouseRelease
 - [ ] **Lazy-import control panel** — import `control_panel.py` only when first opened

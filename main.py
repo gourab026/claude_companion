@@ -182,6 +182,13 @@ class CompanionWindow(QWidget):
 
         self._anim_counter: int = 0
 
+        # ── Triple-click to minimize ──────────────────────────────────────────
+        self._click_times: list[float] = []
+        self._minimized: bool = False
+
+        # WindowStaysOnTopHint handles z-order at the WM level.
+        # No periodic raise_() — that steals focus from the user's active window.
+
         # ── Pomodoro ─────────────────────────────────────────────────────────
         self._pomo_running: bool = False
         self._pomo_timer = QTimer(self)
@@ -215,6 +222,22 @@ class CompanionWindow(QWidget):
         else:
             QTimer.singleShot(1200, self._second_pip_greet)
 
+    # ── Always-on-top + minimize ──────────────────────────────────────────────
+
+    def _toggle_minimize(self):
+        self._minimized = not self._minimized
+        if self._minimized:
+            self._bubble.hide()
+            self._anim_timer.stop()
+            self._idle_timer.stop()
+            self.setFixedSize(20, 20)
+        else:
+            self._anim_timer.start(130)
+            self._schedule_idle()
+            self.setFixedSize(self._char.canvas_w, self._char.canvas_h)
+            self.raise_()
+        self.update()
+
     # ── Animation ─────────────────────────────────────────────────────────────
 
     def _tick(self):
@@ -231,12 +254,27 @@ class CompanionWindow(QWidget):
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
         p.fillRect(self.rect(), Qt.GlobalColor.transparent)
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        self._char.draw(p)
+        if self._minimized:
+            from PyQt6.QtGui import QColor, QBrush
+            p.setRenderHint(p.RenderHint.Antialiasing)
+            p.setBrush(QBrush(QColor(120, 80, 200, 200)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(2, 2, 16, 16)
+        else:
+            self._char.draw(p)
 
     # ── Mouse events ──────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            now = time.time()
+            self._click_times = [t for t in self._click_times if now - t < 0.6]
+            self._click_times.append(now)
+            if len(self._click_times) >= 3:
+                self._click_times.clear()
+                self._click_timer.stop()
+                self._toggle_minimize()
+                return
             self._drag_pos     = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._press_global = event.globalPosition().toPoint()
             self._is_dragging  = False
@@ -270,6 +308,16 @@ class CompanionWindow(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Count this as a click for triple-click detection.
+            # Qt fires: press(1) press(2)→doubleclick press(3), so we track here too.
+            now = time.time()
+            self._click_times = [t for t in self._click_times if now - t < 0.6]
+            self._click_times.append(now)
+            if len(self._click_times) >= 3:
+                self._click_times.clear()
+                self._click_timer.stop()
+                self._toggle_minimize()
+                return
             self._click_timer.stop()
             self._pet_pip()
 
