@@ -1,6 +1,6 @@
 # Pip — AI Desktop Companion ![Static Badge](https://img.shields.io/badge/claude-code-orange)
 
-**Homepage:** https://meet-pip.netlify.app/
+[![Homepage](https://img.shields.io/badge/homepage-meet--pip.netlify.app-7860d4?style=flat-square)](https://meet-pip.netlify.app/)
 
 A tiny pixel-art character who lives in the corner of your Linux desktop.
 She chats, dances to your music, reminds you to drink water, and grows a real personality the longer you hang around.
