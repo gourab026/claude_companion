@@ -192,8 +192,8 @@ class ControlPanel(QWidget):
         self._s   = settings
         self._mcp = mcp_config_path
         self.setWindowTitle("Pip — Control Panel")
-        self.setMinimumWidth(460)
         self.setWindowFlags(Qt.WindowType.Window)
+        self.resize(580, 640)
 
         # ── Dark theme stylesheet ─────────────────────────────────────────────
         self.setStyleSheet("""
@@ -424,16 +424,24 @@ class ControlPanel(QWidget):
         """)
         self._search.textChanged.connect(self._on_search)
 
+        def _scrollable(w):
+            sa = QScrollArea()
+            sa.setWidgetResizable(True)
+            sa.setFrameShape(QScrollArea.Shape.NoFrame)
+            sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            sa.setWidget(w)
+            return sa
+
         self._tabs = QTabWidget()
         self._tabs.setIconSize(QSize(18, 18))
-        self._tabs.addTab(self._home_tab(),        _tab_icon_about(),       "Home")
-        self._tabs.addTab(self._personality_tab(), _tab_icon_personality(), "Personality")
-        self._tabs.addTab(self._journal_mood_tab(),_tab_icon_mood(),        "Journal & Mood")
-        self._tabs.addTab(self._notes_bm_tab(),    _tab_icon_notes(),       "Notes & Bookmarks")
-        self._tabs.addTab(self._tools_tab(),       _tab_icon_tools(),       "Tools")
-        self._tabs.addTab(self._cosmetics_tab(),   _tab_icon_cosmetics(),   "Cosmetics")
-        self._tabs.addTab(self._settings_tab(),    _tab_icon_settings(),    "Settings")
-        self._tabs.addTab(self._build_log_tab(),   _tab_icon_log(),         "Log")
+        self._tabs.addTab(self._home_tab(),                    _tab_icon_about(),       "Home")
+        self._tabs.addTab(_scrollable(self._personality_tab()),_tab_icon_personality(), "Personality")
+        self._tabs.addTab(_scrollable(self._journal_mood_tab()),_tab_icon_mood(),       "Journal & Mood")
+        self._tabs.addTab(_scrollable(self._notes_bm_tab()),   _tab_icon_notes(),       "Notes & Bookmarks")
+        self._tabs.addTab(_scrollable(self._tools_tab()),      _tab_icon_tools(),       "Tools")
+        self._tabs.addTab(_scrollable(self._cosmetics_tab()),  _tab_icon_cosmetics(),   "Cosmetics")
+        self._tabs.addTab(_scrollable(self._settings_tab()),   _tab_icon_settings(),    "Settings")
+        self._tabs.addTab(self._build_log_tab(),               _tab_icon_log(),         "Log")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
