@@ -1046,6 +1046,113 @@ class ControlPanel(QWidget):
     def _trigger_breathing(self):
         self.breathing_requested.emit()
 
+    # ═══════════════════════════════════════════ Log tab ═════════════════════
+
+    def _build_log_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Filter row
+        filter_row = QHBoxLayout()
+        self._log_filters: dict[str, QCheckBox] = {}
+        for level in ['ERROR', 'WARNING', 'INFO', 'DEBUG']:
+            cb = QCheckBox(level)
+            cb.setChecked(True)
+            cb.stateChanged.connect(self._refresh_log)
+            self._log_filters[level] = cb
+            filter_row.addWidget(cb)
+        filter_row.addStretch()
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self._refresh_log)
+        clear_btn = QPushButton("Clear Log")
+        clear_btn.clicked.connect(self._clear_log)
+        filter_row.addWidget(refresh_btn)
+        filter_row.addWidget(clear_btn)
+        layout.addLayout(filter_row)
+
+        self._log_view = QTextEdit()
+        self._log_view.setReadOnly(True)
+        self._log_view.setFont(QFont("Monospace", 9))
+        self._log_view.setStyleSheet(
+            "QTextEdit { background:#0a0812; color:#c0b0d8; border:1px solid #2d2540; }"
+        )
+        layout.addWidget(self._log_view)
+
+        self._log_timer = QTimer(self)
+        self._log_timer.timeout.connect(self._refresh_log)
+        self._log_timer.start(5000)
+        self._refresh_log()
+        return widget
+
+    # Level color map for the log viewer
+    _LOG_LEVEL_COLORS = {
+        'ERROR':    '#d46080',
+        'CRITICAL': '#d46080',
+        'WARNING':  '#f0c030',
+        'INFO':     '#c0b0d8',
+        'DEBUG':    '#5a4f70',
+    }
+
+    def _refresh_log(self):
+        log_path = Path.home() / ".pip-companion.log"
+        if not log_path.exists():
+            self._log_view.setPlainText("(log file not found)")
+            return
+
+        try:
+            lines = log_path.read_text(errors='replace').splitlines()[-100:]
+        except Exception:
+            log.error("Failed to read log file", exc_info=True)
+            self._log_view.setPlainText("(error reading log file)")
+            return
+
+        # Determine which levels are visible
+        active_levels = {lvl for lvl, cb in self._log_filters.items() if cb.isChecked()}
+
+        html_lines = []
+        for line in lines:
+            # Detect level from the structured format:
+            # "2026-05-21 13:45:01 | INFO     | pip.claude — ..."
+            # Split on ' | ' and check the second segment (index 1).
+            line_level = 'INFO'  # default
+            parts = line.split(' | ', 2)
+            if len(parts) >= 2:
+                seg = parts[1].strip()
+                for lvl in ('CRITICAL', 'ERROR', 'WARNING', 'DEBUG', 'INFO'):
+                    if seg == lvl or seg.startswith(lvl):
+                        line_level = lvl
+                        break
+
+            # Filter by checkbox (CRITICAL maps to ERROR checkbox)
+            check_level = 'ERROR' if line_level == 'CRITICAL' else line_level
+            if check_level not in active_levels:
+                continue
+
+            color = self._LOG_LEVEL_COLORS.get(line_level, '#c0b0d8')
+            # Escape HTML special chars
+            safe = (line.replace('&', '&amp;')
+                        .replace('<', '&lt;')
+                        .replace('>', '&gt;'))
+            html_lines.append(f'<span style="color:{color};">{safe}</span>')
+
+        self._log_view.setHtml(
+            '<html><body style="background:#0a0812; font-family:monospace; font-size:9pt;">'
+            + '<br>'.join(html_lines)
+            + '</body></html>'
+        )
+        # Scroll to bottom
+        sb = self._log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _clear_log(self):
+        log_path = Path.home() / ".pip-companion.log"
+        try:
+            log_path.write_text("")
+        except Exception:
+            log.error("Failed to clear log file", exc_info=True)
+        self._refresh_log()
+
 
 # ═══════════════════════════════════════ MCP Server dialog ═══════════════════
 

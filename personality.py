@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 import random
 import sys
 from collections import Counter
 from datetime import datetime, date, timedelta
+
+log = logging.getLogger("pip.personality")
 
 # When frozen by PyInstaller, keep user data in ~/.config/pip-companion/ so
 # it survives updates. During normal dev, keep it next to the source file.
@@ -203,14 +206,17 @@ class Personality:
             try:
                 with open(DATA_FILE) as f:
                     self._data = {**DEFAULTS, **json.load(f)}
+                log.info("Personality loaded (name=%s, interactions=%d)",
+                         self._data.get("name", "?"), self._data.get("interactions", 0))
                 return
             except Exception:
+                log.error("Personality load failed — using defaults", exc_info=True)
                 _bak = DATA_FILE + ".bak"
                 try:
                     import shutil
                     shutil.copy2(DATA_FILE, _bak)
                 except Exception:
-                    pass
+                    log.warning("Could not back up corrupted personality file", exc_info=True)
         self._data = dict(DEFAULTS)
         self.save()
 
@@ -221,8 +227,9 @@ class Personality:
             with open(_tmp, "w") as f:
                 json.dump(self._data, f, indent=2)
             os.replace(_tmp, DATA_FILE)
+            log.debug("Personality saved")
         except OSError:
-            pass
+            log.error("Personality save failed", exc_info=True)
 
     @property
     def name(self):

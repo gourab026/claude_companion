@@ -313,12 +313,15 @@ MOOD_TRIGGERS: dict[State, list[str]] = {
     State.SLEEPING: ["boring", "tired", "sleepy", "zzz", "whatever", "meh"],
     State.THINKING: ["why", "how", "explain", "what if", "could you",
                      "tell me", "what is", "define", "?"],
+    State.EXCITED:  ["omg", "oh my god", "incredible", "unbelievable", "holy",
+                     "insane", "no way", "wow", "whoa", "!!!"],
 }
 
 RESPONSE_MOOD_TRIGGERS: dict[State, list[str]] = {
     State.HAPPY:    ["!", "haha", "great", "awesome", "yay", "love",
                      "exciting", "wonderful", "amazing"],
     State.DANCING:  ["♪", "dance", "music", "party"],
+    State.EXCITED:  ["!!", "incredible", "amazing!", "wow!", "omg"],
 }
 
 MAX_HISTORY_TURNS = 3   # = 6 messages
@@ -1100,8 +1103,8 @@ class CompanionWindow(QWidget):
 
     def _random_event(self):
         ev = random.choices(
-            ["quip", "dance", "sleep", "happy", "think", "time_greet", "haiku"],
-            weights=[28, 18, 13, 16, 9, 6, 10],
+            ["quip", "dance", "sleep", "happy", "think", "time_greet", "haiku", "excited"],
+            weights=[26, 17, 12, 15, 9, 6, 10, 5],
         )[0]
 
         _log_idle.info("Idle event fired (type=%s)", ev)
@@ -1141,6 +1144,14 @@ class CompanionWindow(QWidget):
             self._return_timer.start(5000)
         elif ev == "haiku":
             self._fetch_haiku()
+        elif ev == "excited":
+            excite_msgs = [
+                "AHHH!! Something amazing just happened!! ✨✨",
+                "I just had the best idea!! 💡💡",
+                "Oh WOW I'm so excited right now!! ⭐",
+                "I LOVE being here!! ★★★",
+            ]
+            self._trigger_excited(random.choice(excite_msgs))
 
         # Day-of-week quip (fires at most once per day)
         day_quip = self._personality.get_day_quip()
@@ -1207,7 +1218,79 @@ class CompanionWindow(QWidget):
 
     def _go_idle(self):
         self._dream_timer.stop()
+        self._stretch_timer.stop()
         self._char.set_state(State.IDLE)
+
+    # ── STRETCHING: auto-triggered idle variant ───────────────────────────────
+
+    def _trigger_stretching(self):
+        """Play STRETCHING for 2s then return to IDLE."""
+        if self._char.state != State.IDLE:
+            return
+        self._char.set_state(State.STRETCHING)
+        self._personality.log_mood("STRETCHING")
+        # stretch_timer is a safety net; the tick loop also handles the return
+        self._stretch_timer.start(2100)
+
+    # ── EXCITED: new high-energy state ───────────────────────────────────────
+
+    def _trigger_excited(self, message: str = ""):
+        """Switch to EXCITED state with an optional bubble."""
+        self._char.set_state(State.EXCITED)
+        self._personality.log_mood("EXCITED")
+        if message:
+            self._show_bubble(message, style=SHOUT, priority=BUBBLE_HIGH)
+        self._return_timer.start(5000)
+
+    # ── Wander mode ───────────────────────────────────────────────────────────
+
+    def _wander_tick(self):
+        """Fire wander logic; rescheduled after each move."""
+        # Don't wander during active states or while bubble is showing
+        if self._char.state in (State.TALKING, State.SLEEPING):
+            self._reschedule_wander()
+            return
+        if self._bubble.isVisible():
+            self._reschedule_wander()
+            return
+        if not self._settings.value("wander_mode", False, type=bool):
+            return   # wander mode was toggled off
+
+        self._do_wander()
+
+    def _do_wander(self):
+        """Animate Pip drifting to a new random position on the primary screen."""
+        screen = QApplication.primaryScreen().geometry()
+        margin = 40
+        new_x = random.randint(margin, screen.width()  - self.width()  - margin)
+        new_y = random.randint(margin, screen.height() - self.height() - margin)
+
+        # Show a tiny thought bubble before moving
+        self._show_bubble("...", style=THOUGHT, priority=BUBBLE_LOW)
+        self._char.set_state(State.STRETCHING)
+
+        # Animate position using QPropertyAnimation
+        if self._wander_anim is not None:
+            self._wander_anim.stop()
+        self._wander_anim = QPropertyAnimation(self, b"pos", self)
+        self._wander_anim.setDuration(3000)
+        self._wander_anim.setEndValue(QPoint(new_x, new_y))
+        self._wander_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._wander_anim.finished.connect(self._on_wander_done)
+        self._wander_anim.start()
+
+    def _on_wander_done(self):
+        """Called when the wander animation completes."""
+        self._go_idle()
+        if not self._is_second:
+            self._settings.setValue("x", self.x())
+            self._settings.setValue("y", self.y())
+        self._reschedule_wander()
+
+    def _reschedule_wander(self):
+        """Re-arm the wander timer for the next interval."""
+        if self._settings.value("wander_mode", False, type=bool):
+            self._wander_timer.start(random.randint(300, 480) * 1000)
 
     # ── Dream muttering ───────────────────────────────────────────────────────
 
@@ -2150,6 +2233,17 @@ class CompanionWindow(QWidget):
             self._return_timer.start(5000)
         elif not deep_watch and self._deep_watch_timer.isActive():
             self._deep_watch_timer.stop()
+        # Wander mode toggle
+        wander = self._settings.value("wander_mode", False, type=bool)
+        if wander and not self._wander_timer.isActive():
+            self._wander_timer.start(random.randint(300, 480) * 1000)
+            self._show_bubble("Wander mode ON! I'll stretch my legs sometimes. 🐾",
+                              style=THOUGHT, priority=BUBBLE_HIGH)
+            self._return_timer.start(4000)
+        elif not wander:
+            self._wander_timer.stop()
+            if self._wander_anim is not None:
+                self._wander_anim.stop()
 
     def _rename(self):
         name, ok = QInputDialog.getText(
