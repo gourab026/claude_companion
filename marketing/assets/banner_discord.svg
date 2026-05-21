@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <radialGradient id="dBg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1e1542"/>
+      <stop offset="100%" stop-color="#0c0b18"/>
+    </radialGradient>
+    <radialGradient id="dPip" cx="30%" cy="24%" r="72%">
+      <stop offset="0%" stop-color="#b8a8ff"/>
+      <stop offset="100%" stop-color="#4e3cac"/>
+    </radialGradient>
+    <linearGradient id="dGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7860d4"/>
+      <stop offset="33%" stop-color="#a892ff"/>
+      <stop offset="66%" stop-color="#d46080"/>
+      <stop offset="100%" stop-color="#f0c030"/>
+    </linearGradient>
+    <filter id="pipShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="20" flood-color="#7860d4" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#dBg)"/>
+
+  <!-- Decorative dots pattern -->
+  <g fill="#7860d4" opacity="0.06">
+    <circle cx="80" cy="80" r="3"/><circle cx="160" cy="80" r="3"/><circle cx="240" cy="80" r="3"/>
+    <circle cx="80" cy="160" r="3"/><circle cx="160" cy="160" r="3"/><circle cx="240" cy="160" r="3"/>
+    <circle cx="80" cy="240" r="3"/><circle cx="160" cy="240" r="3"/><circle cx="240" cy="240" r="3"/>
+    <circle cx="1040" cy="400" r="3"/><circle cx="1120" cy="400" r="3"/><circle cx="1200" cy="400" r="3"/>
+    <circle cx="1040" cy="480" r="3"/><circle cx="1120" cy="480" r="3"/><circle cx="1200" cy="480" r="3"/>
+    <circle cx="1040" cy="560" r="3"/><circle cx="1120" cy="560" r="3"/><circle cx="1200" cy="560" r="3"/>
+  </g>
+
+  <!-- Top rainbow bar -->
+  <rect x="0" y="0" width="1280" height="7" fill="url(#dGrad)"/>
+
+  <!-- Bottom bar -->
+  <rect x="0" y="618" width="1280" height="22" fill="url(#dGrad)" opacity="0.6"/>
+
+  <!-- ── BIG Pip center-left ── -->
+  <g transform="translate(240, 320)" filter="url(#pipShadow)">
+    <!-- Glow rings -->
+    <ellipse cx="0" cy="0" rx="230" ry="215" fill="#7860d4" fill-opacity="0.10"/>
+    <ellipse cx="0" cy="0" rx="175" ry="163" fill="#7860d4" fill-opacity="0.08"/>
+
+    <!-- Body -->
+    <ellipse cx="0" cy="15" rx="178" ry="168" fill="url(#dPip)"/>
+    <!-- Bottom shade -->
+    <ellipse cx="0" cy="138" rx="142" ry="62" fill="#4b3caa" opacity="0.92"/>
+    <!-- Top highlight -->
+    <ellipse cx="-68" cy="-98" rx="50" ry="28" fill="#ddd0ff" opacity="0.26" transform="rotate(-22 -68 -98)"/>
+
+    <!-- Left eye -->
+    <rect x="-162" y="-58" width="88" height="96" rx="24" fill="#ffffff"/>
+    <rect x="-142" y="-36" width="48" height="56" rx="13" fill="#1a1625"/>
+    <rect x="-142" y="-36" width="18" height="18" rx="5" fill="#ffffff" opacity="0.55"/>
+
+    <!-- Right eye -->
+    <rect x="74" y="-58" width="88" height="96" rx="24" fill="#ffffff"/>
+    <rect x="94" y="-36" width="48" height="56" rx="13" fill="#1a1625"/>
+    <rect x="94" y="-36" width="18" height="18" rx="5" fill="#ffffff" opacity="0.55"/>
+
+    <!-- Cheeks -->
+    <ellipse cx="-144" cy="78" rx="44" ry="25" fill="#d46080" opacity="0.46"/>
+    <ellipse cx="144" cy="78" rx="44" ry="25" fill="#d46080" opacity="0.46"/>
+  </g>
+
+  <!-- Speech bubble 1 -->
+  <rect x="64" y="90" width="240" height="52" rx="16" fill="#ffffff" opacity="0.95"/>
+  <polygon points="130,142 150,162 170,142" fill="#ffffff" opacity="0.95"/>
+  <text x="184" y="120" font-family="Inter, system-ui, sans-serif" font-size="19" font-weight="700"
+        fill="#1a1625" text-anchor="middle">Hello there!</text>
+  <text x="184" y="137" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#8878a0"
+        text-anchor="middle">Left-click to chat</text>
+
+  <!-- Speech bubble 2 -->
+  <rect x="298" y="488" width="220" height="52" rx="16" fill="#1a1625" fill-opacity="0.9" stroke="#7860d4" stroke-opacity="0.4" stroke-width="1"/>
+  <polygon points="360,488 380,468 400,488" fill="#1a1625" fill-opacity="0.9"/>
+  <text x="408" y="517" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="600"
+        fill="#a892ff" text-anchor="middle">Did you drink water?</text>
+  <text x="408" y="533" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#5a4f70"
+        text-anchor="middle">Wellness check-in</text>
+
+  <!-- ── RIGHT: Text content ── -->
+  <text x="680" y="118" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700"
+        fill="#7860d4" letter-spacing="3">NEW SIDE PROJECT</text>
+
+  <text x="680" y="192" font-family="Inter, system-ui, sans-serif" font-size="74" font-weight="800"
+        fill="#ffffff" letter-spacing="-3">Meet Pip</text>
+
+  <text x="680" y="232" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="400"
+        fill="#8878a0">A tiny AI companion for your Linux desktop</text>
+
+  <!-- Feature pills row 1 -->
+  <rect x="680" y="272" width="168" height="36" rx="18" fill="#7860d4" fill-opacity="0.20" stroke="#7860d4" stroke-opacity="0.5" stroke-width="1"/>
+  <text x="764" y="295" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600"
+        fill="#a892ff" text-anchor="middle">AI Chat</text>
+
+  <rect x="860" y="272" width="190" height="36" rx="18" fill="#60d4a8" fill-opacity="0.15" stroke="#60d4a8" stroke-opacity="0.4" stroke-width="1"/>
+  <text x="955" y="295" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600"
+        fill="#60d4a8" text-anchor="middle">No API Key</text>
+
+  <rect x="1062" y="272" width="152" height="36" rx="18" fill="#d46080" fill-opacity="0.15" stroke="#d46080" stroke-opacity="0.4" stroke-width="1"/>
+  <text x="1138" y="295" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600"
+        fill="#d46080" text-anchor="middle">Open Source</text>
+
+  <!-- Feature pills row 2 -->
+  <rect x="680" y="322" width="172" height="36" rx="18" fill="#f0c030" fill-opacity="0.12" stroke="#f0c030" stroke-opacity="0.4" stroke-width="1"/>
+  <text x="766" y="345" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600"
+        fill="#f0c030" text-anchor="middle">Mini Games</text>
+
+  <rect x="864" y="322" width="172" height="36" rx="18" fill="#a892ff" fill-opacity="0.15" stroke="#a892ff" stroke-opacity="0.4" stroke-width="1"/>
+  <text x="950" y="345" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600"
+        fill="#a892ff" text-anchor="middle">Music Aware</text>
+
+  <rect x="1048" y="322" width="166" height="36" rx="18" fill="#d46080" fill-opacity="0.12" stroke="#d46080" stroke-opacity="0.35" stroke-width="1"/>
+  <text x="1131" y="345" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600"
+        fill="#d46080" text-anchor="middle">Pomodoro</text>
+
+  <!-- Big quote -->
+  <text x="680" y="420" font-family="Inter, system-ui, sans-serif" font-size="17" fill="#5a4f70"
+        font-style="italic">"She grows from polite stranger to best friend</text>
+  <text x="680" y="443" font-family="Inter, system-ui, sans-serif" font-size="17" fill="#5a4f70"
+        font-style="italic">who writes diary entries about your day."</text>
+
+  <!-- Separator -->
+  <rect x="680" y="466" width="530" height="1" fill="#7860d4" fill-opacity="0.25"/>
+
+  <!-- GitHub link -->
+  <rect x="680" y="484" width="384" height="44" rx="12" fill="#7860d4" fill-opacity="0.14" stroke="#7860d4" stroke-opacity="0.35" stroke-width="1"/>
+  <text x="872" y="511" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="600"
+        fill="#a892ff" text-anchor="middle">github.com/gourab026/claude_companion</text>
+
+  <!-- Python + PyQt6 note -->
+  <text x="680" y="556" font-family="Inter, system-ui, sans-serif" font-size="14" fill="#3d3458">
+    Python + PyQt6  •  Polyform NC  •  Linux
+  </text>
+
+  <!-- Sparkles -->
+  <g fill="#f0c030" opacity="0.9">
+    <rect x="608" y="88" width="9" height="9" rx="1"/>
+    <rect x="612" y="72" width="3" height="42" rx="1"/>
+    <rect x="592" y="92" width="42" height="3" rx="1"/>
+  </g>
+  <g fill="#60d4a8" opacity="0.80">
+    <rect x="56" y="380" width="7" height="7" rx="1"/>
+    <rect x="59" y="367" width="2" height="34" rx="1"/>
+    <rect x="44" y="383" width="34" height="2" rx="1"/>
+  </g>
+  <g fill="#a892ff" opacity="0.70">
+    <rect x="424" y="142" width="6" height="6" rx="1"/>
+    <rect x="427" y="131" width="2" height="28" rx="1"/>
+    <rect x="415" y="145" width="28" height="2" rx="1"/>
+  </g>
+</svg>

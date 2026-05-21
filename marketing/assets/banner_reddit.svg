@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <defs>
+    <radialGradient id="rBg" cx="60%" cy="50%" r="65%">
+      <stop offset="0%" stop-color="#1a1438"/>
+      <stop offset="100%" stop-color="#0f0d1a"/>
+    </radialGradient>
+    <radialGradient id="rPip" cx="30%" cy="25%" r="70%">
+      <stop offset="0%" stop-color="#b0a0ff"/>
+      <stop offset="100%" stop-color="#5040b0"/>
+    </radialGradient>
+    <linearGradient id="rBar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7860d4"/>
+      <stop offset="100%" stop-color="#d46080"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="400" fill="url(#rBg)"/>
+
+  <!-- Left accent border -->
+  <rect x="0" y="0" width="6" height="400" fill="url(#rBar)"/>
+  <!-- Bottom accent -->
+  <rect x="0" y="393" width="1200" height="7" fill="url(#rBar)" opacity="0.5"/>
+
+  <!-- ── Pip left side ── -->
+  <!-- Glow -->
+  <ellipse cx="200" cy="205" rx="155" ry="145" fill="#7860d4" fill-opacity="0.10"/>
+
+  <!-- Body -->
+  <ellipse cx="200" cy="210" rx="138" ry="130" fill="url(#rPip)"/>
+  <!-- Shade -->
+  <ellipse cx="200" cy="298" rx="110" ry="48" fill="#4b3caa" opacity="0.90"/>
+  <!-- Highlight -->
+  <ellipse cx="142" cy="116" rx="36" ry="20" fill="#ddd0ff" opacity="0.26" transform="rotate(-20 142 116)"/>
+
+  <!-- Left eye -->
+  <rect x="110" y="158" width="66" height="72" rx="18" fill="#ffffff"/>
+  <rect x="126" y="175" width="34" height="40" rx="9" fill="#1a1625"/>
+  <rect x="126" y="175" width="12" height="12" rx="3" fill="#ffffff" opacity="0.55"/>
+
+  <!-- Right eye -->
+  <rect x="224" y="158" width="66" height="72" rx="18" fill="#ffffff"/>
+  <rect x="240" y="175" width="34" height="40" rx="9" fill="#1a1625"/>
+  <rect x="240" y="175" width="12" height="12" rx="3" fill="#ffffff" opacity="0.55"/>
+
+  <!-- Cheeks -->
+  <ellipse cx="126" cy="258" rx="32" ry="18" fill="#d46080" opacity="0.45"/>
+  <ellipse cx="274" cy="258" rx="32" ry="18" fill="#d46080" opacity="0.45"/>
+
+  <!-- Speech bubble -->
+  <rect x="60" y="42" width="196" height="44" rx="13" fill="#ffffff" opacity="0.96"/>
+  <polygon points="128,86 148,104 168,86" fill="#ffffff" opacity="0.96"/>
+  <text x="158" y="68" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700"
+        fill="#1a1625" text-anchor="middle">I made this!</text>
+
+  <!-- Sparkles -->
+  <g fill="#f0c030" opacity="0.85">
+    <rect x="50" y="80" width="7" height="7" rx="1"/>
+    <rect x="53" y="67" width="2" height="34" rx="1"/>
+    <rect x="38" y="83" width="34" height="2" rx="1"/>
+  </g>
+  <g fill="#60d4a8" opacity="0.75">
+    <rect x="336" y="88" width="6" height="6" rx="1"/>
+    <rect x="339" y="77" width="2" height="28" rx="1"/>
+    <rect x="327" y="91" width="28" height="2" rx="1"/>
+  </g>
+  <g fill="#a892ff" opacity="0.65">
+    <rect x="52" y="310" width="5" height="5" rx="1"/>
+    <rect x="54" y="301" width="2" height="24" rx="1"/>
+    <rect x="44" y="313" width="24" height="2" rx="1"/>
+  </g>
+
+  <!-- ── Right: Text ── -->
+  <text x="420" y="94" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="700"
+        fill="#7860d4" letter-spacing="2">SHOW HN / SIDE PROJECT</text>
+
+  <text x="420" y="160" font-family="Inter, system-ui, sans-serif" font-size="60" font-weight="800"
+        fill="#ffffff" letter-spacing="-2">Pip</text>
+  <text x="515" y="160" font-family="Inter, system-ui, sans-serif" font-size="60" font-weight="300"
+        fill="#8878a0" letter-spacing="-2"> — AI Desktop Companion</text>
+
+  <text x="420" y="198" font-family="Inter, system-ui, sans-serif" font-size="20" fill="#8878a0">
+    Pixel-art  •  Linux  •  Claude Code CLI  •  No API key
+  </text>
+
+  <!-- Feature bullets -->
+  <g font-family="Inter, system-ui, sans-serif" font-size="17" fill="#c0b0d8">
+    <rect x="420" y="228" width="7" height="7" rx="1" fill="#a892ff"/>
+    <text x="440" y="238">Full AI chat — no Anthropic account needed</text>
+    <rect x="420" y="258" width="7" height="7" rx="1" fill="#60d4a8"/>
+    <text x="440" y="268">Relationship system — 4 levels, she genuinely changes</text>
+    <rect x="420" y="288" width="7" height="7" rx="1" fill="#d46080"/>
+    <text x="440" y="298">Music, games, Pomodoro, daily challenges</text>
+    <rect x="420" y="318" width="7" height="7" rx="1" fill="#f0c030"/>
+    <text x="440" y="328">Open source, Python + PyQt6</text>
+  </g>
+
+  <!-- GitHub -->
+  <text x="420" y="372" font-family="Inter, system-ui, sans-serif" font-size="16" fill="#5a4f70">
+    github.com/
+  </text>
+  <text x="520" y="372" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="700" fill="#a892ff">
+    gourab026/claude_companion
+  </text>
+</svg>

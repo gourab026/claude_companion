@@ -526,7 +526,11 @@
           </div>
           <button class="copy-btn" id="copyBtn" onclick="copyInstall()">Copy</button>
         </div>
-        <pre id="installCode"><span class="c-comment"># 1. Install Python dependencies</span>
+        <pre id="installCode"><span class="c-comment"># 0. Clone the repo</span>
+<span class="c-cmd">git</span> clone https://github.com/gourab026/claude_companion.git
+<span class="c-cmd">cd</span> claude_companion
+
+<span class="c-comment"># 1. Install Python dependencies</span>
 <span class="c-cmd">pip</span> install PyQt6 pynput
 <span class="c-cmd">pip</span> install psutil   <span class="c-comment"># optional — CPU/RAM reactions</span>
 
@@ -538,7 +542,6 @@
 <span class="c-cmd">claude</span> <span class="c-flag">-p</span> <span class="c-str">"hi"</span>    <span class="c-comment"># should return a response</span>
 
 <span class="c-comment"># 4. Run Pip</span>
-<span class="c-cmd">cd</span> /path/to/companion
 <span class="c-cmd">python</span> main.py</pre>
       </div>
     </div>
@@ -832,7 +835,11 @@
 
 // ── Copy install block ────────────────────────────────────────────────────────
 function copyInstall() {
-  const raw = `# 1. Install Python dependencies
+  const raw = `# 0. Clone the repo
+git clone https://github.com/gourab026/claude_companion.git
+cd claude_companion
+
+# 1. Install Python dependencies
 pip install PyQt6 pynput
 pip install psutil   # optional — CPU/RAM reactions
 
@@ -844,7 +851,6 @@ claude --version   # should print a version number
 claude -p "hi"    # should return a response
 
 # 4. Run Pip
-cd /path/to/companion
 python main.py`;
 
   navigator.clipboard.writeText(raw).then(() => {
