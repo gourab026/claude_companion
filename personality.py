@@ -506,6 +506,12 @@ class Personality:
             profile_ctx += f"Their interests include: {interests}. "
         if comm:
             profile_ctx += f"They prefer {comm} communication. "
+        # Communication style length guidance (improvement 11)
+        comm_length_hint = ""
+        if comm == "brief":
+            comm_length_hint = "Keep responses under 2 sentences. "
+        elif comm == "detailed":
+            comm_length_hint = "Feel free to give thorough explanations. "
         if vocab:
             sample = list(vocab.items())[:3]
             profile_ctx += f"They've taught you words: {', '.join(f'{w}={m}' for w,m in sample)}. "
@@ -519,6 +525,7 @@ class Personality:
             f"Topics discussed so far: {topics}. "
             f"{familiarity} "
             f"{profile_ctx}"
+            f"{comm_length_hint}"
             "Keep replies SHORT (1-3 sentences max) — you appear in a tiny speech bubble. "
             "Be warm, witty, and occasionally silly. React to your mood. "
             "If asked something technical, be genuinely helpful but keep it brief. "

@@ -182,8 +182,8 @@ class CharacterRenderer:
     canvas_w: int = CW * PX
     canvas_h: int = CH * PX
 
-    def draw(self, p: QPainter, ox: int = 0, oy: int = 0):
-        """Draw character at pixel offset (ox, oy)."""
+    def draw(self, p: QPainter, ox: int = 0, oy: int = 0, overlay: dict | None = None):
+        """Draw character at pixel offset (ox, oy). If overlay is provided, draw it on top."""
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
         s, f = self._state, self._frame
@@ -215,6 +215,9 @@ class CharacterRenderer:
         bx = ox + (BX + xoff) * PX
         by = oy + (BY + bob)  * PX
 
+        # Store bob for overlay use
+        self._bob = by - (oy + BY * PX)  # actual bob offset in real pixels
+
         self._shadow(p, bx, by, s)
         self._body(p, bx, by, s)
         self._belly_shine(p, bx, by, s)
@@ -226,10 +229,33 @@ class CharacterRenderer:
         self._mouth(p, bx, by, s, f)
         self._effects(p, bx, by, s, f)
 
+        # Draw cosmetic overlay on top (e.g. hat)
+        if overlay:
+            self._draw_overlay(p, overlay, ox, oy, bob)
+
     # ── Drawing helpers ───────────────────────────────────────────────────────
 
     def _r(self, p, bx, by, rx, ry, rw, rh, color):
         p.fillRect(bx + rx * PX, by + ry * PX, rw * PX, rh * PX, color)
+
+    def _draw_overlay(self, p: QPainter, overlay: dict,
+                      ox: int = 0, oy: int = 0, bob: int = 0):
+        """Draw pixel-art overlay (e.g. a hat) on top of the character."""
+        anchor_x = overlay.get("anchor_x", 0)
+        anchor_y = overlay.get("anchor_y", -6)
+        # Base position of the character body within the canvas
+        bx = ox + BX * PX
+        by = oy + BY * PX + bob
+        for px_rect in overlay.get("pixels", []):
+            try:
+                color = QColor(px_rect["color"])
+                x = bx + (px_rect["x"] + anchor_x) * PX
+                y = by + (px_rect["y"] + anchor_y) * PX
+                w = px_rect.get("w", 1) * PX
+                h = px_rect.get("h", 1) * PX
+                p.fillRect(x, y, w, h, color)
+            except Exception:
+                pass  # skip bad pixel entries silently
 
     def _shadow(self, p, bx, by, s):
         # STRETCHING: shadow slightly wider/lower

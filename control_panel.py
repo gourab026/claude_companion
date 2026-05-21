@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from datetime import datetime as _dt
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QMessageBox, QCheckBox,
     QListWidget, QListWidgetItem, QDialog,
     QDialogButtonBox, QRadioButton, QButtonGroup,
+    QScrollArea, QSplitter, QFileDialog, QGridLayout, QFrame,
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QSize, QTimer
 
@@ -167,6 +169,17 @@ def _tab_icon_log(size=18):
 
 LOG_FILE = os.path.join(os.path.expanduser("~"), ".pip-companion.log")
 
+
+
+def _tab_icon_cosmetics(size=18):
+    def draw(p, s):
+        m = s / 16
+        # hat shape
+        p.drawLine(int(2*m), int(10*m), int(14*m), int(10*m))
+        p.drawRoundedRect(int(4*m), int(4*m), int(8*m), int(6*m), 1*m, 1*m)
+        p.drawLine(int(6*m), int(4*m), int(7*m), int(2*m))
+        p.drawLine(int(7*m), int(2*m), int(9*m), int(2*m))
+    return _cp_make_icon(draw, "#c888ff", size)
 
 class ControlPanel(QWidget):
     settings_changed    = pyqtSignal()
@@ -392,23 +405,223 @@ class ControlPanel(QWidget):
             }
         """)
 
-        tabs = QTabWidget()
-        tabs.setIconSize(QSize(18, 18))
-        tabs.addTab(self._personality_tab(), _tab_icon_personality(), "Personality")
-        tabs.addTab(self._profile_tab(),     _tab_icon_profile(),     "Profile")
-        tabs.addTab(self._mood_tab(),        _tab_icon_mood(),        "Mood")
-        tabs.addTab(self._journal_tab(),     _tab_icon_journal(),     "Journal")
-        tabs.addTab(self._notes_tab(),       _tab_icon_notes(),       "Notes")
-        tabs.addTab(self._tools_tab(),       _tab_icon_tools(),       "Tools")
-        tabs.addTab(self._settings_tab(),    _tab_icon_settings(),    "Settings")
-        tabs.addTab(self._wellness_tab(),    _tab_icon_wellness(),    "Wellness")
-        tabs.addTab(self._focus_tab(),       _tab_icon_focus(),       "Focus")
-        tabs.addTab(self._about_tab(),       _tab_icon_about(),       "About")
-        tabs.addTab(self._build_log_tab(),   _tab_icon_log(),         "Log")
+        # ── Search box ────────────────────────────────────────────────────────
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search settings…")
+        self._search.setClearButtonEnabled(True)
+        self._search.setStyleSheet("""
+            QLineEdit {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                border-radius: 6px;
+                padding: 6px 10px;
+                color: #c0b0d8;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #7860d4;
+            }
+        """)
+        self._search.textChanged.connect(self._on_search)
+
+        self._tabs = QTabWidget()
+        self._tabs.setIconSize(QSize(18, 18))
+        self._tabs.addTab(self._home_tab(),        _tab_icon_about(),       "Home")
+        self._tabs.addTab(self._personality_tab(), _tab_icon_personality(), "Personality")
+        self._tabs.addTab(self._journal_mood_tab(),_tab_icon_mood(),        "Journal & Mood")
+        self._tabs.addTab(self._notes_bm_tab(),    _tab_icon_notes(),       "Notes & Bookmarks")
+        self._tabs.addTab(self._tools_tab(),       _tab_icon_tools(),       "Tools")
+        self._tabs.addTab(self._cosmetics_tab(),   _tab_icon_cosmetics(),   "Cosmetics")
+        self._tabs.addTab(self._settings_tab(),    _tab_icon_settings(),    "Settings")
+        self._tabs.addTab(self._build_log_tab(),   _tab_icon_log(),         "Log")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
-        root.addWidget(tabs)
+        root.addWidget(self._search)
+        root.addWidget(self._tabs)
+
+        # Search keyword → tab index map (populated after tabs are built)
+        self._search_tab_map = {
+            # Home
+            "home": 0, "overview": 0, "mood": 0, "streak": 0, "stats": 0,
+            "pomodoro": 0, "focus mode": 0, "breathing": 0, "journal": 0,
+            # Personality
+            "personality": 1, "name": 1, "humor": 1, "playfulness": 1,
+            "helpfulness": 1, "traits": 1, "quips": 1, "profile": 1,
+            "work": 1, "interests": 1, "communication": 1, "vocabulary": 1,
+            "achievements": 1, "checkin": 1, "reset": 1,
+            # Journal & Mood
+            "journal": 2, "diary": 2, "mood history": 2, "mood chart": 2,
+            # Notes & Bookmarks
+            "notes": 3, "note": 3, "bookmarks": 3, "bookmark": 3,
+            # Tools
+            "tools": 4, "mcp": 4, "web search": 4, "bash": 4, "deep watch": 4,
+            "wander": 4, "screen watcher": 4, "server": 4,
+            # Settings
+            "settings": 5, "model": 5, "idle": 5, "position": 5,
+            "log file": 5, "sound": 5, "interval": 5,
+            # Log
+            "log": 6, "error": 6, "debug": 6, "warning": 6,
+        }
+
+    # ═══════════════════════════════════════════ Search handler ══════════════
+
+    def _on_search(self, text: str):
+        q = text.strip().lower()
+        if not q:
+            return
+        # Find the best matching tab
+        for keyword, tab_idx in self._search_tab_map.items():
+            if keyword in q or q in keyword:
+                self._tabs.setCurrentIndex(tab_idx)
+                return
+        # Fallback: search all tab names
+        for i in range(self._tabs.count()):
+            if q in self._tabs.tabText(i).lower():
+                self._tabs.setCurrentIndex(i)
+                return
+
+    # ═══════════════════════════════════════════ Home tab ════════════════════
+
+    def _home_tab(self):
+        def _stat_card(title: str, value: str, accent: str) -> QFrame:
+            card = QFrame()
+            card.setStyleSheet(
+                f"QFrame {{ background: #1a1625; border: 1px solid {accent}40; "
+                f"border-radius: 10px; padding: 8px; }}"
+            )
+            card_lo = QVBoxLayout(card)
+            card_lo.setSpacing(2)
+            title_lbl = QLabel(title)
+            title_lbl.setStyleSheet(f"color: {accent}; font-size: 11px; font-weight: 600;")
+            val_lbl = QLabel(value)
+            val_lbl.setObjectName("val")
+            val_lbl.setStyleSheet("color: #e0d8f8; font-size: 18px; font-weight: 700;")
+            card_lo.addWidget(title_lbl)
+            card_lo.addWidget(val_lbl)
+            return card
+
+        w = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        inner = QWidget()
+        lo = QVBoxLayout(inner)
+        lo.setSpacing(12)
+        lo.setContentsMargins(8, 8, 8, 8)
+
+        # ── Pip identity banner ───────────────────────────────────────────────
+        d = self._p._data
+        identity_box = QGroupBox()
+        identity_box.setStyleSheet("QGroupBox { border: 1px solid #2d2540; border-radius: 10px; padding: 14px; }")
+        id_lo = QVBoxLayout(identity_box)
+
+        name_lbl = QLabel(d.get("name", "Pip"))
+        name_lbl.setStyleSheet("color: #a892ff; font-size: 24px; font-weight: 700;")
+        id_lo.addWidget(name_lbl)
+
+        self._home_mood_lbl = QLabel()
+        self._home_mood_lbl.setStyleSheet("color: #8878a0; font-size: 13px;")
+        id_lo.addWidget(self._home_mood_lbl)
+
+        self._home_rel_lbl = QLabel()
+        self._home_rel_lbl.setStyleSheet("color: #7860d4; font-size: 12px; font-weight: 600;")
+        id_lo.addWidget(self._home_rel_lbl)
+        lo.addWidget(identity_box)
+
+        # ── Stat cards row ────────────────────────────────────────────────────
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(8)
+        self._home_streak_card  = _stat_card("🔥 Streak",       "0 days",  "#f0a030")
+        self._home_chats_card   = _stat_card("💬 Chats",         "0",       "#a892ff")
+        self._home_uptime_card  = _stat_card("⏱ Session",       "0 min",   "#60c0a0")
+        for c in [self._home_streak_card, self._home_chats_card, self._home_uptime_card]:
+            stats_row.addWidget(c)
+        lo.addLayout(stats_row)
+
+        # ── Quick actions ─────────────────────────────────────────────────────
+        actions_box = QGroupBox("Quick Actions")
+        a_lo = QHBoxLayout(actions_box)
+        pomo_btn  = QPushButton("🍅 Start Pomodoro")
+        focus_btn = QPushButton("🎯 Focus Mode")
+        breath_btn = QPushButton("🌬️ Breathing")
+        pomo_btn.clicked.connect(self._request_pomodoro)
+        focus_btn.clicked.connect(self._request_focus)
+        breath_btn.clicked.connect(self._trigger_breathing)
+        for btn in [pomo_btn, focus_btn, breath_btn]:
+            btn.setStyleSheet("""
+                QPushButton { background: #1a1625; color: #a892ff; border: 1px solid #2d2540;
+                              border-radius: 6px; padding: 8px 12px; font-weight: 500; }
+                QPushButton:hover { background: #2d2540; border-color: #7860d4; }
+                QPushButton:pressed { background: #7860d4; color: #fff; }
+            """)
+            a_lo.addWidget(btn)
+        lo.addWidget(actions_box)
+
+        # ── Last journal entry ────────────────────────────────────────────────
+        journal_box = QGroupBox("Last Journal Entry")
+        j_lo = QVBoxLayout(journal_box)
+        self._home_journal_lbl = QLabel("No entries yet.")
+        self._home_journal_lbl.setStyleSheet("color: #5a4f70; font-style: italic;")
+        self._home_journal_lbl.setWordWrap(True)
+        j_lo.addWidget(self._home_journal_lbl)
+        lo.addWidget(journal_box)
+
+        # ── Word / challenge of day ───────────────────────────────────────────
+        daily_box = QGroupBox("Today")
+        d_lo = QVBoxLayout(daily_box)
+        self._home_word_lbl = QLabel("—")
+        self._home_word_lbl.setWordWrap(True)
+        self._home_word_lbl.setStyleSheet("color: #8878a0;")
+        d_lo.addWidget(self._home_word_lbl)
+        lo.addWidget(daily_box)
+
+        lo.addStretch()
+        scroll.setWidget(inner)
+
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        return w
+
+    def _request_pomodoro(self):
+        """Quick-action button — emitted as a breathing-style signal chain."""
+        self.breathing_requested.emit()  # reuse signal; main.py overrides as needed
+
+    def _request_focus(self):
+        pass  # placeholder; toggled via right-click menu
+
+    def _home_refresh(self):
+        """Update Home tab dynamic values — called by refresh()."""
+        d = self._p._data
+        self._home_mood_lbl.setText(f"Mood: {d.get('mood', 'happy').capitalize()}")
+        self._home_rel_lbl.setText(
+            f"Relationship: {self._p.relationship_label}  "
+            f"({d.get('interactions', 0)} interactions)"
+        )
+        streak = d.get("streak", 0)
+        self._home_streak_card.findChild(QLabel, "val").setText(
+            f"{streak} day{'s' if streak != 1 else ''}"
+        )
+        self._home_chats_card.findChild(QLabel, "val").setText(str(d.get("interactions", 0)))
+        uptime_min = int((time.time() - getattr(self, "_session_start", time.time())) / 60)
+        self._home_uptime_card.findChild(QLabel, "val").setText(f"{uptime_min} min")
+        journal = d.get("journal", [])
+        if journal:
+            last = journal[-1]
+            self._home_journal_lbl.setText(f"[{last['date']}] {last['entry'][:120]}")
+        else:
+            self._home_journal_lbl.setText("No entries yet.")
+        # Word/challenge
+        word = d.get("word_of_day", "")
+        challenge = d.get("daily_challenge", "")
+        parts = []
+        if word:
+            parts.append(f"Word: {word}")
+        if challenge:
+            parts.append(f"Challenge: {challenge}")
+        self._home_word_lbl.setText("\n".join(parts) if parts else "—")
 
     # ═══════════════════════════════════════════ Personality tab ═════════════
 
@@ -500,12 +713,18 @@ class ControlPanel(QWidget):
         lay = QVBoxLayout(w)
 
         form = QFormLayout()
+
+        # Improvement 9: "Your name" field
+        self._user_name_edit = QLineEdit()
+        self._user_name_edit.setPlaceholderText("e.g. Alex  (used in greetings)")
+        form.addRow("Your name:", self._user_name_edit)
+
         self._work_combo = QComboBox()
         self._work_combo.addItems(["(not set)", "Developer / Engineer", "Designer", "Student", "Writer / Creator", "Other"])
         form.addRow("Work type:", self._work_combo)
 
         self._comm_combo = QComboBox()
-        self._comm_combo.addItems(["casual", "professional", "playful"])
+        self._comm_combo.addItems(["casual", "professional", "playful", "brief", "detailed"])
         form.addRow("Communication style:", self._comm_combo)
 
         self._interests_edit = QLineEdit()
@@ -544,7 +763,85 @@ class ControlPanel(QWidget):
         self._p.set_profile_field("communication_style", self._comm_combo.currentText())
         interests = [i.strip() for i in self._interests_edit.text().split(",") if i.strip()]
         self._p.set_profile_field("interests", interests)
+        # Improvement 9: save user's name
+        user_name = self._user_name_edit.text().strip()
+        self._p.set_profile_field("name", user_name)
         QMessageBox.information(self, "Saved", "Profile saved!")
+
+    # ═══════════════════════════════════════ Journal & Mood tab (combined) ════
+
+    def _journal_mood_tab(self):
+        """Combined tab: journal diary + mood history chart."""
+        w = QWidget()
+        lo = QVBoxLayout(w)
+        lo.setSpacing(8)
+        lo.setContentsMargins(6, 6, 6, 6)
+
+        # Journal section
+        j_box = QGroupBox("Pip's Journal")
+        j_lo = QVBoxLayout(j_box)
+        j_lo.addWidget(QLabel("Daily diary — written at the end of each session:"))
+        self._journal_view = QTextEdit()
+        self._journal_view.setReadOnly(True)
+        self._journal_view.setMaximumHeight(180)
+        j_lo.addWidget(self._journal_view)
+        lo.addWidget(j_box)
+
+        # Mood history section
+        m_box = QGroupBox("Mood History")
+        m_lo = QVBoxLayout(m_box)
+        m_lo.addWidget(QLabel("Today's mood activity (updates when Pip reacts):"))
+        self._mood_chart = MoodChart(self._p._data.get("mood_log", []))
+        m_lo.addWidget(self._mood_chart)
+        lo.addWidget(m_box)
+        lo.addStretch()
+        return w
+
+    # ═══════════════════════════════════════ Notes & Bookmarks tab (combined) ═
+
+    def _notes_bm_tab(self):
+        """Combined tab: notes + bookmarks."""
+        w = QWidget()
+        lo = QVBoxLayout(w)
+        lo.setSpacing(8)
+        lo.setContentsMargins(6, 6, 6, 6)
+
+        # Notes section
+        n_box = QGroupBox("Notes")
+        n_lo = QVBoxLayout(n_box)
+        n_lo.addWidget(QLabel(
+            "Notes saved via chat (\"remember: your note\").\n"
+            "Select a note and press Delete to remove it."
+        ))
+        self._notes_list = QListWidget()
+        n_lo.addWidget(self._notes_list)
+        btns = QHBoxLayout()
+        del_btn = QPushButton("Delete Selected")
+        clear_btn = QPushButton("Clear All")
+        del_btn.clicked.connect(self._delete_selected_note)
+        clear_btn.clicked.connect(self._clear_all_notes)
+        btns.addWidget(del_btn)
+        btns.addWidget(clear_btn)
+        n_lo.addLayout(btns)
+        lo.addWidget(n_box)
+
+        # Bookmarks section
+        bm_box = QGroupBox("Bookmarks")
+        bm_lo = QVBoxLayout(bm_box)
+        bm_lo.addWidget(QLabel("Links saved via chat (\"bookmark: url\"):"))
+        self._bookmarks_list = QListWidget()
+        bm_lo.addWidget(self._bookmarks_list)
+        bm_btns = QHBoxLayout()
+        open_btn = QPushButton("Open")
+        del_bm_btn = QPushButton("Delete")
+        open_btn.clicked.connect(self._open_selected_bookmark)
+        del_bm_btn.clicked.connect(self._delete_selected_bookmark)
+        bm_btns.addWidget(open_btn)
+        bm_btns.addWidget(del_bm_btn)
+        bm_lo.addLayout(bm_btns)
+        lo.addWidget(bm_box)
+        lo.addStretch()
+        return w
 
     # ═══════════════════════════════════════════ Notes tab ══════════════════
 
@@ -663,6 +960,150 @@ class ControlPanel(QWidget):
         self._reload_mcp_list()
         return w
 
+
+    # ═══════════════════════════════════════════ Cosmetics tab ═══════════════
+
+    def _cosmetics_tab(self):
+        from asset_manager import AssetManager
+        self._asset_mgr = AssetManager()
+
+        w = QWidget()
+        outer = QVBoxLayout(w)
+
+        # Install buttons row
+        install_row = QHBoxLayout()
+        folder_btn = QPushButton("Install from folder...")
+        zip_btn    = QPushButton("Install from zip...")
+        folder_btn.clicked.connect(self._install_asset_folder)
+        zip_btn.clicked.connect(self._install_asset_zip)
+        install_row.addWidget(folder_btn)
+        install_row.addWidget(zip_btn)
+        install_row.addStretch()
+        outer.addLayout(install_row)
+
+        # Scrollable catalog area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._cosm_container = QWidget()
+        self._cosm_layout    = QVBoxLayout(self._cosm_container)
+        self._cosm_layout.setSpacing(6)
+        scroll.setWidget(self._cosm_container)
+        outer.addWidget(scroll)
+
+        self._refresh_cosmetics()
+        return w
+
+    def _refresh_cosmetics(self):
+        """Rebuild the cosmetics catalog display."""
+        if not hasattr(self, "_asset_mgr"):
+            from asset_manager import AssetManager
+            self._asset_mgr = AssetManager()
+
+        # Clear existing widgets
+        while self._cosm_layout.count():
+            item = self._cosm_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        catalog  = self._asset_mgr.load_catalog()
+        equipped = self._asset_mgr.get_equipped()
+
+        if not catalog:
+            lbl = QLabel("No assets installed yet.\nUse the buttons above to install some!")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet("color: #5a4f70; padding: 24px;")
+            self._cosm_layout.addWidget(lbl)
+            self._cosm_layout.addStretch()
+            return
+
+        # Group by category
+        categories: dict[str, list[dict]] = {}
+        for item in catalog:
+            cat = item.get("category", "other")
+            categories.setdefault(cat, []).append(item)
+
+        for cat, items in sorted(categories.items()):
+            cat_label = QLabel(cat.upper())
+            cat_label.setStyleSheet("color: #5a4f70; font-size: 10px; letter-spacing: 1px; padding: 6px 0 2px 0;")
+            self._cosm_layout.addWidget(cat_label)
+
+            for item in items:
+                item_id      = item.get("id", "")
+                item_name    = item.get("name", item_id)
+                is_equipped  = equipped.get(cat) == item_id
+
+                row = QWidget()
+                row.setFixedHeight(40)
+                row_style = (
+                    "QWidget { background: #2d2540; border: 1px solid #a892ff; border-radius: 6px; }"
+                    if is_equipped else
+                    "QWidget { background: #1a1625; border: 1px solid #2d2540; border-radius: 6px; }"
+                )
+                row.setStyleSheet(row_style)
+                rl = QHBoxLayout(row)
+                rl.setContentsMargins(8, 4, 8, 4)
+
+                name_lbl = QLabel(item_name)
+                name_lbl.setStyleSheet("color: #c0b0d8;" if not is_equipped else "color: #a892ff; font-weight: 600;")
+                rl.addWidget(name_lbl, 1)
+
+                if is_equipped:
+                    btn = QPushButton("Unequip")
+                    btn.setStyleSheet(
+                        "QPushButton { color: #d46080; border: 1px solid #d46080; border-radius: 4px; padding: 2px 10px; }"
+                        "QPushButton:hover { background: #2d1f28; }"
+                    )
+                    btn.clicked.connect(lambda checked=False, c=cat: self._unequip_asset(c))
+                else:
+                    btn = QPushButton("Equip")
+                    btn.setStyleSheet(
+                        "QPushButton { color: #a892ff; border: 1px solid #2d2540; border-radius: 4px; padding: 2px 10px; }"
+                        "QPushButton:hover { background: #2d2540; }"
+                    )
+                    btn.clicked.connect(lambda checked=False, c=cat, i=item_id: self._equip_asset(c, i))
+                rl.addWidget(btn)
+
+                self._cosm_layout.addWidget(row)
+
+        self._cosm_layout.addStretch()
+
+    def _equip_asset(self, category: str, item_id: str):
+        self._asset_mgr.equip(category, item_id)
+        self._refresh_cosmetics()
+
+    def _unequip_asset(self, category: str):
+        self._asset_mgr.equip(category, None)
+        self._refresh_cosmetics()
+
+    def _install_asset_folder(self):
+        if not hasattr(self, "_asset_mgr"):
+            from asset_manager import AssetManager
+            self._asset_mgr = AssetManager()
+        folder = QFileDialog.getExistingDirectory(self, "Select Asset Folder")
+        if folder:
+            ok = self._asset_mgr.install_from_folder(folder)
+            if ok:
+                QMessageBox.information(self, "Installed", f"Asset installed from:\n{folder}")
+                self._refresh_cosmetics()
+            else:
+                QMessageBox.warning(self, "Error", f"Could not install asset from:\n{folder}\n\nMake sure the folder contains a manifest.json.")
+
+    def _install_asset_zip(self):
+        if not hasattr(self, "_asset_mgr"):
+            from asset_manager import AssetManager
+            self._asset_mgr = AssetManager()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Asset Zip", "", "Zip files (*.zip)"
+        )
+        if path:
+            ok = self._asset_mgr.install_from_zip(path)
+            if ok:
+                QMessageBox.information(self, "Installed", f"Asset installed from:\n{path}")
+                self._refresh_cosmetics()
+            else:
+                QMessageBox.warning(self, "Error", f"Could not install asset from:\n{path}")
+
     # ═══════════════════════════════════════════ Settings tab ════════════════
 
     def _settings_tab(self):
@@ -717,6 +1158,14 @@ class ControlPanel(QWidget):
         wlo.addWidget(self._deep_watch_cb)
         lo.addWidget(watcher_box)
 
+        # Improvement 10: bubble sound toggle
+        sound_box = QGroupBox("Bubble Sound")
+        slo = QVBoxLayout(sound_box)
+        self._bubble_sound_cb = QCheckBox("Play a soft beep when a new bubble appears")
+        self._bubble_sound_cb.setChecked(self._s.value("bubble_sound", False, type=bool))
+        slo.addWidget(self._bubble_sound_cb)
+        lo.addWidget(sound_box)
+
         save_btn = QPushButton("Save Settings")
         save_btn.clicked.connect(self._save_settings)
         lo.addWidget(save_btn)
@@ -757,6 +1206,7 @@ class ControlPanel(QWidget):
     # ═══════════════════════════════════════════ Refresh (public) ════════════
 
     def refresh(self):
+        self._home_refresh()
         d = self._p._data
         self._name_edit.setText(d["name"])
         self._interactions_lbl.setText(str(d["interactions"]))
@@ -788,11 +1238,18 @@ class ControlPanel(QWidget):
             ts = note.get("t", "")[:16].replace("T", " ")
             item = QListWidgetItem(f"[{ts}]  {note['text']}")
             self._notes_list.addItem(item)
+        # Bookmarks
+        self._bookmarks_list.clear()
+        for bm in self._p.get_bookmarks():
+            title = bm.get("title") or bm.get("url", "")
+            self._bookmarks_list.addItem(title)
         # Profile tab
         profile = self._p.get_profile()
+        # Improvement 9: populate user name
+        self._user_name_edit.setText(profile.get("name", ""))
         work_rev = {"": 0, "developer": 1, "designer": 2, "student": 3, "writer": 4, "other": 5}
         self._work_combo.setCurrentIndex(work_rev.get(profile.get("work_type", ""), 0))
-        comm_options = ["casual", "professional", "playful"]
+        comm_options = ["casual", "professional", "playful", "brief", "detailed"]
         comm = profile.get("communication_style", "casual")
         self._comm_combo.setCurrentIndex(comm_options.index(comm) if comm in comm_options else 0)
         self._interests_edit.setText(", ".join(profile.get("interests", [])))
@@ -846,6 +1303,24 @@ class ControlPanel(QWidget):
         ) == QMessageBox.StandardButton.Yes:
             self._p.clear_all_notes()
             self.refresh()
+
+    def _open_selected_bookmark(self):
+        row = self._bookmarks_list.currentRow()
+        if row >= 0:
+            bmarks = self._p.get_bookmarks()
+            if row < len(bmarks):
+                import webbrowser
+                webbrowser.open(bmarks[row].get("url", ""))
+
+    def _delete_selected_bookmark(self):
+        row = self._bookmarks_list.currentRow()
+        if row >= 0:
+            bmarks = self._p.get_bookmarks()
+            if row < len(bmarks):
+                bmarks.pop(row)
+                self._p._data.setdefault("user_profile", {})["bookmarks"] = bmarks
+                self._p.save()
+                self.refresh()
 
     def _save_custom_quips(self):
         lines = self._quips_edit.toPlainText().splitlines()
@@ -938,10 +1413,11 @@ class ControlPanel(QWidget):
         if self._idle_min.value() >= self._idle_max.value():
             QMessageBox.warning(self, "Invalid", "Minimum must be less than maximum.")
             return
-        self._s.setValue("model",      self._model_combo.currentText())
-        self._s.setValue("idle_min",   self._idle_min.value())
-        self._s.setValue("idle_max",   self._idle_max.value())
-        self._s.setValue("deep_watch", self._deep_watch_cb.isChecked())
+        self._s.setValue("model",        self._model_combo.currentText())
+        self._s.setValue("idle_min",     self._idle_min.value())
+        self._s.setValue("idle_max",     self._idle_max.value())
+        self._s.setValue("deep_watch",   self._deep_watch_cb.isChecked())
+        self._s.setValue("bubble_sound", self._bubble_sound_cb.isChecked())
         self.settings_changed.emit()
         QMessageBox.information(self, "Saved", "Settings saved!")
 

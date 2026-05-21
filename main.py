@@ -20,7 +20,7 @@ import time
 from collections import deque
 from datetime import datetime, date
 
-from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox
+from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox, QSystemTrayIcon
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QPainter, QIcon, QPixmap, QColor, QPen, QBrush
 
@@ -290,6 +290,7 @@ from claude_client import ClaudeWorker
 from bubble import BubbleWindow, SPEECH, THOUGHT, SHOUT
 from chat_input import ChatInputWidget
 from control_panel import ControlPanel
+from asset_manager import AssetManager
 
 # Bubble priority levels
 BUBBLE_LOW    = 0   # idle chatter — silently dropped if a bubble is already visible
@@ -374,6 +375,7 @@ class CompanionWindow(QWidget):
         self._skill_tip_worker: ClaudeWorker | None = None
         self._watch_worker: ClaudeWorker | None    = None
         self._what_doing_worker: ClaudeWorker | None = None
+        self._file_drop_worker: ClaudeWorker | None  = None
         self._drag_pos: QPoint | None    = None
         self._press_global: QPoint       = QPoint()
         self._is_dragging: bool          = False
@@ -382,6 +384,15 @@ class CompanionWindow(QWidget):
 
         self._history: list[tuple[str, str]] = []
         self._pending_user_msg: str = ""
+        self._last_response: str = ""          # improvement 1: double-tap to reply
+
+        # improvement 5: idle timeout escalation
+        self._idle_escalated: bool = False
+
+        # improvement 2: typing speed tracking
+        self._keypress_count_wpm: int = 0
+        self._wpm_window_start: float = time.time()
+        self._wpm_alerted: bool = False
 
         # Trivia / 20Q game state
         self._trivia_score: list[int] = [0, 0]   # [wins, losses]
@@ -390,8 +401,18 @@ class CompanionWindow(QWidget):
 
         self.setFixedSize(self._char.canvas_w, self._char.canvas_h)
         self._bubble = BubbleWindow()
-        self._bubble_queue: list[tuple[int, str, str]] = []   # (priority, text, style)
+        self._bubble_queue: list[tuple[int, str, str, bool]] = []   # (priority, text, style, interactive)
         self._bubble.bubble_closed.connect(self._drain_bubble_queue)
+        # improvement 1: double-click on bubble opens chat pre-filled
+        self._bubble.double_clicked.connect(self._bubble_double_clicked)
+        # improvement 8: wire up reaction callback
+        self._bubble.on_reaction = self._on_bubble_reaction
+
+        # improvement 12: typing indicator bubble
+        self._typing_indicator: BubbleWindow | None = None
+        self._typing_dot_count: int = 1
+        self._typing_dot_timer = QTimer(self)
+        self._typing_dot_timer.timeout.connect(self._tick_typing_indicator)
 
         self._chat_input = ChatInputWidget()
         self._chat_input.submitted.connect(self._on_chat_submitted)
@@ -537,6 +558,24 @@ class CompanionWindow(QWidget):
         else:
             QTimer.singleShot(1200, self._second_pip_greet)
 
+        # ── Asset manager ────────────────────────────────────────────────────
+        self._asset_mgr = AssetManager()
+
+        # ── File drop support ─────────────────────────────────────────────────
+        self.setAcceptDrops(True)
+
+        # ── Window app category (for richer reactions) ───────────────────────
+        self._window_app_category: str = ""   # tracks current app type
+
+        # ── Screenshot reaction (clipboard image check) ───────────────────────
+        self._last_clip_had_image: bool = False
+
+        # ── System tray ───────────────────────────────────────────────────────
+        if not is_second and self._settings.value("show_tray", True, type=bool):
+            self._setup_tray()
+        else:
+            self._tray: QSystemTrayIcon | None = None
+
         model = self._settings.value("model", "claude-sonnet-4-6")
         log.info("Pip session started — version %s, model %s", VERSION, model)
 
@@ -576,6 +615,7 @@ class CompanionWindow(QWidget):
             self._pomo_timer, self._window_timer, self._music_timer,
             self._stats_timer, self._hydration_timer, self._eyestrain_timer,
             self._deep_watch_timer, self._wander_timer, self._stretch_timer,
+            self._typing_dot_timer,
         ):
             timer.stop()
         if hasattr(self, "_kb_listener") and self._kb_listener:
@@ -590,6 +630,7 @@ class CompanionWindow(QWidget):
             "_worker", "_haiku_worker", "_trivia_worker", "_twentyq_worker",
             "_song_fact_worker", "_interest_worker", "_joke_worker",
             "_skill_tip_worker", "_watch_worker", "_what_doing_worker",
+            "_file_drop_worker",
         ):
             w = getattr(self, attr, None)
             if w is not None and w.isRunning():
@@ -636,7 +677,13 @@ class CompanionWindow(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(2, 2, 16, 16)
         else:
-            self._char.draw(p)
+            # Load and pass any equipped overlay (hat, etc.)
+            overlay = None
+            try:
+                overlay = self._asset_mgr.get_overlay("hat")
+            except Exception:
+                pass
+            self._char.draw(p, overlay=overlay)
 
     # ── Mouse events ──────────────────────────────────────────────────────────
 
@@ -751,6 +798,9 @@ class CompanionWindow(QWidget):
         mood = _detect_mood(user_text)
         self._char.set_state(mood if mood else State.THINKING)
 
+        # Improvement 3: show a "hmm..." acknowledgement bubble immediately
+        QTimer.singleShot(300, self._show_thinking_ack)
+
         recent = self._history[-(MAX_HISTORY_TURNS * 2):]
         if recent:
             lines = []
@@ -787,17 +837,62 @@ class CompanionWindow(QWidget):
         self._worker.error_occurred.connect(self._on_error)
         self._worker.start()
 
+        # Improvement 12: start typing indicator after acknowledgement bubble
+        QTimer.singleShot(1800, self._start_typing_indicator)
+
         self._personality.after_interaction(user_text)
+
+    def _show_thinking_ack(self):
+        """Improvement 3: show hmm... thought bubble while waiting for Claude."""
+        ack_msgs = ["hmm... 🤔", "let me think...", "ooh interesting...", "hmm..."]
+        self._show_bubble(random.choice(ack_msgs), style=THOUGHT, priority=BUBBLE_HIGH)
+
+    def _start_typing_indicator(self):
+        """Improvement 12: show animated 'Pip is thinking●●●' bubble."""
+        # Only start if we're still waiting for a response
+        if not (self._worker and self._worker.isRunning()):
+            return
+        if self._typing_indicator is None:
+            self._typing_indicator = BubbleWindow()
+        self._typing_dot_count = 1
+        self._typing_dot_timer.start(500)
+        self._update_typing_indicator()
+
+    def _update_typing_indicator(self):
+        """Render the current dot state into the typing indicator bubble."""
+        if self._typing_indicator is None:
+            return
+        dots = "●" * self._typing_dot_count + "○" * (3 - self._typing_dot_count)
+        anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
+        self._typing_indicator.show_text(f"Pip is thinking{dots}", anchor, 9999999, style=SPEECH)
+
+    def _tick_typing_indicator(self):
+        """Advance the dot animation (1 -> 2 -> 3 -> 1)."""
+        self._typing_dot_count = (self._typing_dot_count % 3) + 1
+        self._update_typing_indicator()
+
+    def _stop_typing_indicator(self):
+        """Dismiss the typing indicator and stop the animation timer."""
+        self._typing_dot_timer.stop()
+        if self._typing_indicator and self._typing_indicator.isVisible():
+            self._typing_indicator.hide()
 
     def _on_response(self, response: str):
         elapsed = time.time() - getattr(self, "_call_start", time.time())
         log.info("Claude response received (elapsed=%.1fs, chars=%d)", elapsed, len(response))
+
+        # Improvement 12: dismiss typing indicator
+        self._stop_typing_indicator()
+
         if self._pending_user_msg:
             self._history.append(("user", self._pending_user_msg))
             self._history.append(("assistant", response))
             self._pending_user_msg = ""
             if len(self._history) > MAX_HISTORY_TURNS * 2:
                 self._history = self._history[-(MAX_HISTORY_TURNS * 2):]
+
+        # Improvement 1: store last response for double-tap-to-reply
+        self._last_response = response
 
         resp_mood = _detect_response_mood(response)
         final_state = resp_mood if resp_mood else State.TALKING
@@ -809,10 +904,35 @@ class CompanionWindow(QWidget):
         QTimer.singleShot(1000, self._check_achievements)
 
     def _on_error(self, msg: str):
+        # Improvement 12: dismiss typing indicator on error too
+        self._stop_typing_indicator()
         self._pending_user_msg = ""
         self._char.set_state(State.IDLE)
         self._show_bubble(f"Oops! {msg}", priority=BUBBLE_HIGH)
         self._return_timer.start(5000)
+
+    # ── Improvement 1: double-tap bubble to reply ────────────────────────────
+
+    def _bubble_double_clicked(self):
+        """Open chat pre-filled with context from the last bubble exchange."""
+        anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
+        prefill = "About your reply: " if self._last_response else ""
+        self._chat_input.activate(anchor, prefill=prefill)
+
+    # ── Improvement 8: emoji reaction handler ────────────────────────────────
+
+    def _on_bubble_reaction(self, reaction_name: str):
+        """Handle emoji reaction on bubble - log mood and play small animation."""
+        reaction_map = {
+            "thumbs_up": ("HAPPY",    State.HAPPY,    "hehe~ thanks! 💜"),
+            "laugh":     ("DANCING",  State.DANCING,  "hahaha~ 😂"),
+            "think":     ("THINKING", State.THINKING, "hmm... I'll ponder that 🤔"),
+        }
+        mood_name, state, quip = reaction_map.get(reaction_name, ("HAPPY", State.HAPPY, "~"))
+        self._personality.log_mood(mood_name)
+        self._char.set_state(state)
+        self._show_bubble(quip, priority=BUBBLE_LOW)
+        self._return_timer.start(3000)
 
     # ── Daily events (word of day, challenge) ─────────────────────────────────
 
@@ -894,7 +1014,23 @@ class CompanionWindow(QWidget):
     # ── Clipboard watcher ─────────────────────────────────────────────────────
 
     def _on_clipboard_change(self):
-        text = QApplication.instance().clipboard().text().strip()
+        # Screenshot reaction: check if clipboard now has an image
+        clipboard = QApplication.instance().clipboard()
+        img = clipboard.image()
+        if not img.isNull():
+            if not self._last_clip_had_image and self._char.state in (State.IDLE, State.HAPPY):
+                self._last_clip_had_image = True
+                self._char.set_state(State.SURPRISED)
+                QTimer.singleShot(600, lambda: self._char.set_state(State.HAPPY))
+                self._show_bubble(
+                    "Did you just take a screenshot? Want me to describe what I see?",
+                    priority=BUBBLE_LOW,
+                )
+                self._return_timer.start(7000)
+            return
+        self._last_clip_had_image = False
+
+        text = clipboard.text().strip()
         if len(text) < 30 or text == self._last_clipboard:
             return
         if self._char.state not in (State.IDLE, State.HAPPY):
@@ -937,23 +1073,82 @@ class CompanionWindow(QWidget):
         try:
             from pynput import keyboard
             def _on_press(key):
+                now = time.time()
                 with self._keypress_lock:
-                    self._last_keypress = time.time()
+                    self._last_keypress = now
+                # improvement 2: accumulate keypress count for WPM tracking
+                self._keypress_count_wpm += 1
             self._kb_listener = keyboard.Listener(on_press=_on_press, daemon=True)
             self._kb_listener.start()
         except Exception:
             self._kb_listener = None
 
     def _check_typing_idle(self):
-        if self._char.state in (State.SLEEPING, State.THINKING, State.TALKING):
-            return
         now = time.time()
         with self._keypress_lock:
             last = self._last_keypress
+
+        # ── Improvement 2: fast-typing (>80 WPM for >30 seconds) ─────────────
+        elapsed_wpm = now - self._wpm_window_start
+        if elapsed_wpm >= 30.0:
+            kcount = self._keypress_count_wpm
+            wpm = (kcount / 5.0) / (elapsed_wpm / 60.0)
+            self._keypress_count_wpm = 0
+            self._wpm_window_start = now
+            if wpm > 80 and not self._wpm_alerted:
+                self._wpm_alerted = True
+                self._show_bubble(
+                    "Woah, slow down, your fingers will thank you! 🏃",
+                    style=SPEECH, priority=BUBBLE_NORMAL,
+                )
+                self._return_timer.start(6000)
+                QTimer.singleShot(5 * 60_000, self._reset_wpm_alert)
+            elif wpm <= 80:
+                self._wpm_alerted = False
+        elif self._keypress_count_wpm == 0 and elapsed_wpm >= 60:
+            # Reset window if nothing happened for a while
+            self._wpm_window_start = now
+
+        if self._char.state in (State.SLEEPING, State.THINKING, State.TALKING):
+            return
+
         idle_min = (now - last) / 60
 
-        # 20-min typing idle check
-        if idle_min >= 20:
+        # ── Improvement 5: idle timeout escalation ────────────────────────────
+        # 30-min idle → speech bubble; 40-min idle → SHOUT bubble
+        if idle_min >= 40 and self._idle_escalated:
+            self._char.set_state(State.HAPPY)
+            self._personality.log_mood("HAPPY")
+            self._show_bubble(
+                "HELLO?? Are you still there?? Please drink some water at least!! 💧",
+                style=SHOUT, priority=BUBBLE_NORMAL,
+            )
+            self._return_timer.start(8000)
+            self._idle_escalated = False
+            with self._keypress_lock:
+                self._last_keypress = now
+            return
+
+        if idle_min >= 30 and not self._idle_escalated:
+            msgs = [
+                "Hey... you've been quiet for a while. Taking a real break? 🍵",
+                "You've been away for 30 minutes. Hope everything's ok!",
+                "No typing for half an hour... stretch time? 🧘",
+                "Still there? Just checking in ✨",
+            ]
+            self._char.set_state(State.HAPPY)
+            self._personality.log_mood("HAPPY")
+            self._show_bubble(random.choice(msgs), priority=BUBBLE_NORMAL)
+            self._return_timer.start(8000)
+            self._idle_escalated = True
+            return
+
+        # Reset escalation when user is active
+        if idle_min < 5:
+            self._idle_escalated = False
+
+        # Original 20-min check (kept for users who may already be mid-session)
+        if idle_min >= 20 and not self._idle_escalated:
             msgs = [
                 "Hey... you've been quiet. Taking a break? 🍵",
                 "You seem away. Hope everything's ok!",
@@ -968,7 +1163,7 @@ class CompanionWindow(QWidget):
                 self._last_keypress = now
             return
 
-        # 2-hour screen-time nudge
+        # ── 2-hour screen-time nudge ──────────────────────────────────────────
         if not self._screen_nudge_done:
             hours = (now - self._session_active_start) / 3600
             if hours >= 2:
@@ -983,6 +1178,9 @@ class CompanionWindow(QWidget):
                 self._show_bubble(random.choice(msgs), style=SHOUT, priority=BUBBLE_NORMAL)
                 self._return_timer.start(9000)
                 QTimer.singleShot(90 * 60_000, self._reset_screen_nudge)  # re-arm after 90 min
+
+    def _reset_wpm_alert(self):
+        self._wpm_alerted = False
 
     def _reset_screen_nudge(self):
         self._screen_nudge_done = False
@@ -999,6 +1197,9 @@ class CompanionWindow(QWidget):
         streak, milestone, is_first_today = self._personality.update_streak()
         created = self._personality._data.get("created", "")
         today_s = date.today().isoformat()
+
+        # Improvement 9: personalise with user's name if set
+        user_name = self._personality.get_profile().get("name", "").strip()
 
         try:
             is_birthday = (len(created) >= 10 and today_s[5:] == created[5:10]
@@ -1026,13 +1227,44 @@ class CompanionWindow(QWidget):
             msg = _msgs.get(streak, f"{streak} days in a row! Amazing.")
         elif is_first_today:
             self._char.set_state(State.HAPPY)
-            msg = self._personality.time_quip()
+            base_quip = self._personality.time_quip()
+            # Improvement 9: personalise time-based greeting with user name
+            if user_name:
+                for prefix in ("Good morning!", "Good afternoon!", "Good evening!",
+                               "Still up late?", "Night owl mode"):
+                    if base_quip.startswith(prefix):
+                        rest = base_quip[len(prefix):].lstrip()
+                        msg = f"{prefix[:-1]}, {user_name}! {rest}".strip()
+                        break
+                else:
+                    msg = f"Hey {user_name}! " + base_quip
+            else:
+                msg = base_quip
         else:
             self._char.set_state(State.HAPPY)
-            msg = random.choice([
-                "Hey, back already! 👋", "Miss me? 😊",
-                "Welcome back~", "Oh, you're back!",
+            if user_name:
+                msg = random.choice([
+                    f"Hey {user_name}, back already! 👋",
+                    f"Miss me, {user_name}? 😊",
+                    f"Welcome back, {user_name}~",
+                    f"Oh, {user_name}! You're back!",
+                ])
+            else:
+                msg = random.choice([
+                    "Hey, back already! 👋", "Miss me? 😊",
+                    "Welcome back~", "Oh, you're back!",
+                ])
+
+        # Improvement 4: reference last chat topic on first-today greeting
+        topics = self._personality._data.get("topics", [])
+        if topics and is_first_today and not milestone and not is_birthday:
+            last_topic = topics[-1]
+            topic_suffix = random.choice([
+                f" Still thinking about {last_topic}?",
+                f" Ready to pick up where we left off on {last_topic}?",
+                f" Last time we chatted about {last_topic}~",
             ])
+            msg = msg.rstrip() + topic_suffix
 
         self._personality.log_mood("HAPPY")
         self._show_bubble(msg, priority=BUBBLE_NORMAL)
@@ -2086,11 +2318,44 @@ class CompanionWindow(QWidget):
         _, text, style = self._bubble_queue.pop(0)
         self._show_bubble_now(text, style)
 
+    # ── System tray ───────────────────────────────────────────────────────────
+
+    def _setup_tray(self):
+        icon = self._make_tray_icon()
+        self._tray = QSystemTrayIcon(icon, self)
+        self._tray.setToolTip(f"{self._personality.name} — your AI companion")
+        tray_menu = QMenu()
+        tray_menu.addAction("Open Pip", self._toggle_minimize)
+        tray_menu.addAction("Control Panel", self._open_panel)
+        tray_menu.addSeparator()
+        tray_menu.addAction("Quit", QApplication.quit)
+        self._tray.setContextMenu(tray_menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    def _make_tray_icon(self):
+        from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor
+        px = QPixmap(22, 22)
+        px.fill(QColor(0, 0, 0, 0))
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QColor("#7860d4"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(2, 2, 18, 18)
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(7, 7, 4, 4)
+        p.drawEllipse(13, 7, 4, 4)
+        p.end()
+        return QIcon(px)
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._toggle_minimize()
+
     # ── Menu ──────────────────────────────────────────────────────────────────
 
     def _show_menu(self, pos: QPoint):
-        menu = QMenu()
-        menu.setStyleSheet("""
+        _menu_ss = """
             QMenu {
                 background: #1a1625;
                 border: 1px solid #2d2540;
@@ -2115,75 +2380,105 @@ class CompanionWindow(QWidget):
             QMenu::icon {
                 padding-left: 6px;
             }
-        """)
+        """
 
+        menu = QMenu()
+        menu.setStyleSheet(_menu_ss)
+
+        # ── Chat with Pip ─────────────────────────────────────────────────────
         act = menu.addAction(_icon_chat(), f"Chat with {self._personality.name}")
         act.triggered.connect(self._open_chat)
-
-        act = menu.addAction(_icon_target(), "What am I doing?")
-        act.triggered.connect(self._what_am_i_doing)
-
-        act = menu.addAction(_icon_sliders(), "Control Panel")
-        act.triggered.connect(self._open_panel)
         menu.addSeparator()
 
-        pomo_label = "Stop Pomodoro" if self._pomo_running else "Start Pomodoro"
-        act = menu.addAction(_icon_timer(), pomo_label)
-        act.triggered.connect(self._start_pomodoro)
+        # ── Games & Fun submenu ───────────────────────────────────────────────
+        games_menu = QMenu("Games & Fun", menu)
+        games_menu.setIcon(_icon_gamepad())
+        games_menu.setStyleSheet(_menu_ss)
 
-        act = menu.addAction(_icon_scissors(), "Rock Paper Scissors")
-        act.triggered.connect(self._play_rps)
-
-        act = menu.addAction(_icon_target(), "Trivia Quiz")
+        act = games_menu.addAction(_icon_target(), "Trivia Quiz")
         act.triggered.connect(self._play_trivia)
 
-        act = menu.addAction(_icon_gamepad(), "20 Questions")
+        act = games_menu.addAction(_icon_gamepad(), "20 Questions")
         act.triggered.connect(self._play_twenty_q)
-        menu.addSeparator()
 
-        notes = self._personality.get_notes()
-        notes_label = f"My Notes  ({len(notes)})" if notes else "My Notes  (empty)"
-        act = menu.addAction(_icon_clipboard(), notes_label)
-        act.triggered.connect(self._show_notes)
+        act = games_menu.addAction(_icon_scissors(), "Rock Paper Scissors")
+        act.triggered.connect(self._play_rps)
 
-        twin_label = "Dismiss Twin" if (self._second_pip and not self._second_pip.isHidden()) else "Summon Twin"
-        act = menu.addAction(_icon_users(), twin_label)
-        act.triggered.connect(self._spawn_second_pip)
-        menu.addSeparator()
-
-        history_label = (f"Clear History  ({len(self._history) // 2} turns)"
-                         if self._history else "Clear History  (empty)")
-        clear_action = menu.addAction(_icon_trash(), history_label)
-        clear_action.setEnabled(bool(self._history))
-        clear_action.triggered.connect(self._clear_history)
-        menu.addSeparator()
-
-        focus_label = "Stop Focus Mode" if self._focus_mode else "Focus Mode"
-        act = menu.addAction(_icon_target(), focus_label)
-        act.triggered.connect(self._toggle_focus_mode)
-
-        act = menu.addAction(_icon_timer(), "Focus Zone Timer")
-        act.triggered.connect(self._start_focus_zone)
-
-        act = menu.addAction(_icon_wind(), "Breathing Exercise")
+        act = games_menu.addAction(_icon_wind(), "Breathing Exercise")
         act.triggered.connect(self._breathing_exercise)
 
-        act = menu.addAction(_icon_bar_chart(), "Today's Stats")
+        twin_label = "Dismiss Twin" if (self._second_pip and not self._second_pip.isHidden()) else "Summon Twin"
+        act = games_menu.addAction(_icon_users(), twin_label)
+        act.triggered.connect(self._spawn_second_pip)
+
+        menu.addMenu(games_menu)
+
+        # ── Focus & Wellness submenu ──────────────────────────────────────────
+        focus_menu = QMenu("Focus & Wellness", menu)
+        focus_menu.setIcon(_icon_timer())
+        focus_menu.setStyleSheet(_menu_ss)
+
+        pomo_label = "Stop Pomodoro" if self._pomo_running else "Start Pomodoro"
+        act = focus_menu.addAction(_icon_timer(), pomo_label)
+        act.triggered.connect(self._start_pomodoro)
+
+        focus_act = focus_menu.addAction(_icon_target(), "Focus Mode")
+        focus_act.setCheckable(True)
+        focus_act.setChecked(self._focus_mode)
+        focus_act.triggered.connect(self._toggle_focus_mode)
+
+        act = focus_menu.addAction(_icon_timer(), "Focus Zone Timer")
+        act.triggered.connect(self._start_focus_zone)
+
+        hydration_enabled = self._personality._data.get("hydration_enabled", True)
+        hydration_act = focus_menu.addAction(_icon_wind(), "Hydration Reminder")
+        hydration_act.setCheckable(True)
+        hydration_act.setChecked(hydration_enabled)
+        hydration_act.triggered.connect(self._toggle_hydration)
+
+        menu.addMenu(focus_menu)
+
+        # ── Info & Stats submenu ──────────────────────────────────────────────
+        info_menu = QMenu("Info & Stats", menu)
+        info_menu.setIcon(_icon_bar_chart())
+        info_menu.setStyleSheet(_menu_ss)
+
+        act = info_menu.addAction(_icon_target(), "What am I doing?")
+        act.triggered.connect(self._what_am_i_doing)
+
+        act = info_menu.addAction(_icon_bar_chart(), "Today's Stats")
         act.triggered.connect(self._show_session_stats)
 
+        notes = self._personality.get_notes()
+        notes_label = f"My Notes  ({len(notes)})" if notes else "My Notes"
+        act = info_menu.addAction(_icon_clipboard(), notes_label)
+        act.triggered.connect(self._show_notes)
+
         bookmarks = self._personality.get_bookmarks() if hasattr(self._personality, 'get_bookmarks') else []
-        if bookmarks:
-            act = menu.addAction(_icon_bookmark(), f"My Bookmarks ({len(bookmarks)})")
-            act.triggered.connect(self._show_bookmarks)
+        bm_label = f"My Bookmarks  ({len(bookmarks)})" if bookmarks else "My Bookmarks"
+        act = info_menu.addAction(_icon_bookmark(), bm_label)
+        act.triggered.connect(self._show_bookmarks)
+
+        menu.addMenu(info_menu)
 
         menu.addSeparator()
-        act = menu.addAction(_icon_edit(), "Rename")
-        act.triggered.connect(self._rename)
 
+        # ── Control Panel ─────────────────────────────────────────────────────
+        act = menu.addAction(_icon_sliders(), "Control Panel")
+        act.triggered.connect(self._open_panel)
+
+        menu.addSeparator()
+
+        # ── Quit ──────────────────────────────────────────────────────────────
         act = menu.addAction(_icon_exit("#d46080"), "Quit")
         act.triggered.connect(QApplication.quit)
 
         menu.exec(pos)
+
+    def _toggle_hydration(self, checked: bool):
+        self._personality._data["hydration_enabled"] = checked
+        self._personality.save()
+        self._update_hydration_timer()
 
     def _clear_history(self):
         self._history.clear()
