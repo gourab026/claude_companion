@@ -42,3 +42,6 @@ mcp_config.json
 AppDir/
 *.AppImage
 claude_session.txt
+
+# Store — private, not for public repo
+store/
