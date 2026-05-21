@@ -60,8 +60,8 @@
       transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
     }
     .btn:hover { transform: translateY(-2px); }
-    .btn-primary { background: var(--purple); color: #fff; box-shadow: 0 4px 20px rgba(120,96,212,0.4); border: 1.5px solid rgba(168,146,255,0.55); }
-    .btn-primary:hover { background: var(--light-purple); box-shadow: 0 6px 28px rgba(168,146,255,0.55); border-color: rgba(168,146,255,0.9); }
+    .btn-primary { background: #9278f0; color: #fff; box-shadow: 0 4px 24px rgba(146,120,240,0.55); border: 1.5px solid rgba(200,180,255,0.5); }
+    .btn-primary:hover { background: #b09cff; color: #fff; box-shadow: 0 6px 32px rgba(176,156,255,0.65); border-color: rgba(220,208,255,0.8); }
     .btn-outline { background: transparent; color: var(--light-purple); border: 1.5px solid rgba(120,96,212,0.5); }
     .btn-outline:hover { background: rgba(120,96,212,0.12); border-color: var(--light-purple); }
 
@@ -76,11 +76,36 @@
       border-bottom: 1px solid var(--border); height: 60px;
     }
     nav .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; }
-    .nav-logo { font-size: 1.15rem; font-weight: 800; color: var(--light-purple); text-decoration: none; letter-spacing: -0.01em; }
+    .nav-logo { display: flex; align-items: center; gap: 9px; font-size: 1.15rem; font-weight: 800; color: var(--light-purple); text-decoration: none; letter-spacing: -0.01em; }
     .nav-logo:hover { color: #fff; }
-    .nav-links { display: flex; align-items: center; gap: 14px; }
+    .nav-logo:hover svg rect[fill="#7860d4"], .nav-logo:hover svg rect[fill="#4b3caa"] { fill: #a892ff; }
+    .nav-links { display: flex; align-items: center; gap: 20px; }
     .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.15s; }
     .nav-links a:hover { color: var(--text); }
+    .nav-gh { display: inline-flex; align-items: center; gap: 6px; }
+    .nav-gh svg { opacity: 0.7; transition: opacity 0.15s; }
+    .nav-gh:hover svg { opacity: 1; }
+
+    /* Speech bubble above canvas */
+    .pip-speech {
+      position: absolute; top: 0; left: 50%;
+      transform: translate(-50%, calc(-100% - 12px));
+      background: rgba(255,255,248,0.97);
+      border: 1px solid rgba(120,96,212,0.45);
+      border-radius: 12px; padding: 7px 14px;
+      font-size: 0.8rem; font-weight: 500; color: #1a1625;
+      white-space: nowrap; pointer-events: none;
+      opacity: 0; transition: opacity 0.4s ease;
+      box-shadow: 0 4px 18px rgba(120,96,212,0.22);
+      z-index: 10;
+    }
+    .pip-speech::after {
+      content: ''; position: absolute; top: 100%; left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: rgba(120,96,212,0.45);
+    }
+    .pip-speech.visible { opacity: 1; }
 
     /* ── Hero ── */
     #hero {
@@ -304,11 +329,26 @@
 <!-- NAV -->
 <nav>
   <div class="container nav-inner">
-    <a href="#hero" class="nav-logo">Pip</a>
+    <a href="#hero" class="nav-logo">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="8"  y="10" width="16" height="14" rx="6" fill="#7860d4"/>
+        <rect x="9"  y="18" width="14" height="6"  rx="4" fill="#4b3caa"/>
+        <rect x="11" y="14" width="3"  height="4"  rx="1" fill="#fff"/>
+        <rect x="12" y="15" width="1"  height="2"  rx="0" fill="#1a1625"/>
+        <rect x="18" y="14" width="3"  height="4"  rx="1" fill="#fff"/>
+        <rect x="19" y="15" width="1"  height="2"  rx="0" fill="#1a1625"/>
+        <rect x="11" y="19" width="3"  height="2"  rx="1" fill="#d46080" opacity=".6"/>
+        <rect x="18" y="19" width="3"  height="2"  rx="1" fill="#d46080" opacity=".6"/>
+      </svg>
+      Pip
+    </a>
     <div class="nav-links">
-      <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="nav-gh">GitHub</a>
-      <a href="#features" class="btn btn-outline" style="padding:7px 16px;font-size:.88rem;">Features</a>
-      <a href="#install" class="btn btn-primary" style="padding:7px 16px;font-size:.88rem;"><i data-lucide="download" style="width:14px;height:14px;stroke-width:2.2;"></i> Install</a>
+      <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="nav-gh">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a href="#features" class="btn btn-outline" style="padding:7px 18px;font-size:.88rem;">Features</a>
+      <a href="#install" class="btn btn-primary" style="padding:7px 18px;font-size:.88rem;"><i data-lucide="download" style="width:14px;height:14px;stroke-width:2.2;"></i> Install</a>
     </div>
   </div>
 </nav>
@@ -336,6 +376,7 @@
       </div>
 
       <div class="hero-canvas-wrap reveal" style="transition-delay:0.15s">
+        <div id="pipSpeech" class="pip-speech"></div>
         <div class="glow-ring"></div>
         <canvas id="pipCanvas" width="160" height="160" aria-label="Animated pixel-art Pip character"></canvas>
       </div>
@@ -667,15 +708,84 @@
     ctx.fillRect(sx - size, sy - 1, size * 2, 2);
   }
 
+  // ── State machine ────────────────────────────────────────────────────────────
+  const STATE_POOL = ['IDLE','IDLE','IDLE','HAPPY','HAPPY','DANCING','THINKING','TALKING'];
+  let pipState    = 'IDLE';
+  let stateElapsed  = 0;
+  let stateDuration = 5 + Math.random() * 8;
+
+  const MESSAGES = [
+    "Hello there!",
+    "Left-click to chat!",
+    "Right-click for games!",
+    "Did you drink water today?",
+    "Double-click to pet me!",
+    "I can search the web too!",
+    "Have you tried Pomodoro?",
+    "I remember everything.",
+    "Let's play 20 Questions!",
+    "I dance when music plays!",
+    "I grow closer over time.",
+    "Ask me anything!",
+  ];
+
+  let bubbleTimer = null;
+  function showSpeech(msg) {
+    const el = document.getElementById('pipSpeech');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('visible');
+    if (bubbleTimer) clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => el.classList.remove('visible'), 4200);
+  }
+
+  // ── Blink ─────────────────────────────────────────────────────────────────
   let blinkT = 0, blinking = false, blinkTimer = 0;
 
   function draw(ts) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const bob = Math.sin(ts / 600) * 3;
 
+    // Advance state
+    stateElapsed += 1 / 60;
+    if (stateElapsed > stateDuration) {
+      pipState     = STATE_POOL[Math.floor(Math.random() * STATE_POOL.length)];
+      stateElapsed = 0;
+      stateDuration = 4 + Math.random() * 9;
+      if (pipState === 'TALKING' || Math.random() < 0.3)
+        showSpeech(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]);
+    }
+
+    // Per-state animation params
+    let bob = 0, rotAngle = 0, swayX = 0, sparkleScale = 1;
+
+    if (pipState === 'IDLE') {
+      bob = Math.sin(ts / 620) * 3;
+    } else if (pipState === 'HAPPY') {
+      bob = Math.sin(ts / 260) * 5;
+      sparkleScale = 1.6;
+    } else if (pipState === 'DANCING') {
+      bob      = Math.sin(ts / 300) * 4;
+      rotAngle = Math.sin(ts / 160) * 0.2;
+      sparkleScale = 2;
+    } else if (pipState === 'THINKING') {
+      bob   = Math.sin(ts / 1000) * 2;
+      swayX = Math.sin(ts / 540) * 5;
+    } else if (pipState === 'TALKING') {
+      bob = Math.sin(ts / 320) * 4;
+      sparkleScale = 1.2;
+    }
+
+    // Blink
     blinkTimer += 1 / 60;
     if (!blinking && blinkTimer > 4.0) { blinking = true; blinkT = 0; blinkTimer = 0; }
     if (blinking) { blinkT += 1 / 60; if (blinkT > 0.2) blinking = false; }
+
+    // Draw Pip with transform
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    ctx.save();
+    ctx.translate(cx + swayX, cy + bob);
+    ctx.rotate(rotAngle);
+    ctx.translate(-cx, -cy);
 
     for (let row = 0; row < H; row++) {
       for (let col = 0; col < W; col++) {
@@ -684,19 +794,21 @@
         if (blinking) {
           const isEyeCol = (col >= 13 && col <= 16) || (col >= 23 && col <= 26);
           const isEyeRow = (row >= 15 && row <= 19);
-          if (isEyeCol && isEyeRow) {
+          if (isEyeCol && isEyeRow)
             color = (row === 17 || row === 18) ? D : B;
-          }
         }
-        drawPixel(col, row, color, bob);
+        ctx.fillStyle = color;
+        ctx.fillRect(col * PX, row * PX, PX, PX);
       }
     }
+    ctx.restore();
 
+    // Sparkles (outside transform — float around Pip naturally)
     for (const sp of SPARKLES) {
       const alpha = (Math.sin(ts / 1000 * sp.sp + sp.ph) + 1) / 2;
       if (alpha < 0.08) continue;
-      const size = Math.max(1, Math.round(alpha * 5));
-      ctx.globalAlpha = alpha * 0.9;
+      const size = Math.max(1, Math.round(alpha * 5 * Math.min(sparkleScale, 2)));
+      ctx.globalAlpha = Math.min(alpha * 0.9 * sparkleScale, 1);
       drawSparkle(sp.x * PX + PX / 2, sp.y * PX + PX / 2 + bob, size, sp.c);
       ctx.globalAlpha = 1;
     }
