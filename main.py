@@ -11,14 +11,17 @@ import ctypes.util
 import logging
 import os
 import random
+import re
 import signal
 import subprocess
 import sys
 import sys as _sys
 import threading
 import time
+import webbrowser
 from collections import deque
 from datetime import datetime, date
+from urllib.parse import quote_plus
 
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox, QSystemTrayIcon
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings, QPropertyAnimation, QEasingCurve
@@ -756,7 +759,46 @@ class CompanionWindow(QWidget):
         busy = bool(self._worker and self._worker.isRunning())
         self._chat_input.activate(anchor, prefill=prefill, busy=busy)
 
+    # ── YouTube ───────────────────────────────────────────────────────────────
+
+    _YT_PATTERNS = re.compile(
+        r"^(?:play|put on|queue|open|search(?: for)?|find)\s+(?:me\s+)?"
+        r"(?:some\s+)?(?:the\s+)?(?:song\s+|music\s+|track\s+)?"
+        r"[\"']?(.+?)[\"']?"
+        r"(?:\s+(?:on\s+)?(?:youtube|yt|music))?$",
+        re.IGNORECASE,
+    )
+
+    def _try_youtube(self, text: str) -> bool:
+        """Return True and open YouTube if the text looks like a play request."""
+        m = self._YT_PATTERNS.match(text.strip())
+        if not m:
+            return False
+        query = m.group(1).strip().strip("\"'")
+        if not query or len(query) > 200:
+            return False
+        # Reject bare platform names with no actual search query
+        if query.lower() in {"youtube", "yt", "music", "spotify", "songs"}:
+            return False
+        url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+        webbrowser.open(url)
+        self._char.set_state(State.DANCING)
+        quips = [
+            f"Opening YouTube for \"{query}\" 🎵",
+            f"On it! Searching for \"{query}\" 🎶",
+            f"Your music is loading! \"{query}\" 🎵",
+            f"Let's go! Queuing up \"{query}\" 🎶",
+        ]
+        self._show_bubble(random.choice(quips), style=SPEECH, priority=BUBBLE_HIGH)
+        self._return_timer.start(4000)
+        log.info("YouTube opened for query: %s", query)
+        return True
+
     def _on_chat_submitted(self, user_text: str):
+        # ── YouTube shortcut ─────────────────────────────────────────────────
+        if self._try_youtube(user_text):
+            return
+
         # ── Teach / bookmark shortcuts (checked before remember) ─────────────
         lower = user_text.lower()
         for prefix in ("teach:", "teach :"):
