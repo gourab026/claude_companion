@@ -9,6 +9,7 @@
   <meta property="og:description" content="A tiny AI companion that lives on your desktop. No API key required.">
   <meta property="og:type" content="website">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -59,8 +60,8 @@
       transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
     }
     .btn:hover { transform: translateY(-2px); }
-    .btn-primary { background: var(--purple); color: #fff; box-shadow: 0 4px 20px rgba(120,96,212,0.4); }
-    .btn-primary:hover { background: var(--light-purple); box-shadow: 0 6px 28px rgba(168,146,255,0.45); }
+    .btn-primary { background: var(--purple); color: #fff; box-shadow: 0 4px 20px rgba(120,96,212,0.4); border: 1.5px solid rgba(168,146,255,0.55); }
+    .btn-primary:hover { background: var(--light-purple); box-shadow: 0 6px 28px rgba(168,146,255,0.55); border-color: rgba(168,146,255,0.9); }
     .btn-outline { background: transparent; color: var(--light-purple); border: 1.5px solid rgba(120,96,212,0.5); }
     .btn-outline:hover { background: rgba(120,96,212,0.12); border-color: var(--light-purple); }
 
@@ -149,7 +150,8 @@
       box-shadow: 0 12px 40px rgba(120,96,212,0.22);
       border-color: rgba(120,96,212,0.45);
     }
-    .feature-icon { font-size: 2rem; margin-bottom: 14px; display: block; }
+    .feature-icon { margin-bottom: 16px; display: flex; align-items: center; justify-content: flex-start; }
+    .feature-icon svg { width: 36px; height: 36px; stroke: var(--light-purple); stroke-width: 1.6; fill: none; }
     .feature-title { font-size: 1rem; font-weight: 700; margin-bottom: 8px; color: var(--text); }
     .feature-desc { font-size: 0.88rem; color: var(--muted); line-height: 1.65; }
 
@@ -306,7 +308,7 @@
     <div class="nav-links">
       <a href="https://github.com/gourab026/claude_companion" target="_blank" rel="noopener" class="nav-gh">GitHub</a>
       <a href="#features" class="btn btn-outline" style="padding:7px 16px;font-size:.88rem;">Features</a>
-      <a href="#install" class="btn btn-primary" style="padding:7px 16px;font-size:.88rem;">Install</a>
+      <a href="#install" class="btn btn-primary" style="padding:7px 16px;font-size:.88rem;"><i data-lucide="download" style="width:14px;height:14px;stroke-width:2.2;"></i> Install</a>
     </div>
   </div>
 </nav>
@@ -351,32 +353,32 @@
     </div>
     <div class="features-grid">
       <div class="feature-card reveal" style="transition-delay:.05s">
-        <span class="feature-icon">AI</span>
+        <div class="feature-icon"><i data-lucide="message-circle"></i></div>
         <div class="feature-title">AI-Powered Chat</div>
         <div class="feature-desc">Full two-way conversation via Claude Code CLI. No Anthropic account or API key &mdash; just your existing session. Supports web search and custom MCP servers.</div>
       </div>
       <div class="feature-card reveal" style="transition-delay:.1s">
-        <span class="feature-icon">◉</span>
+        <div class="feature-icon"><i data-lucide="heart"></i></div>
         <div class="feature-title">Living Personality</div>
         <div class="feature-desc">Pip's humor and warmth shift with every conversation. Four relationship milestones take her from polite stranger to best friend who teases you and writes diary entries.</div>
       </div>
       <div class="feature-card reveal" style="transition-delay:.15s">
-        <span class="feature-icon">♪</span>
+        <div class="feature-icon"><i data-lucide="music"></i></div>
         <div class="feature-title">Music Awareness</div>
         <div class="feature-desc">Reads your MPRIS player via playerctl. Pip dances when a track starts and occasionally drops a Claude-powered fact about the song or artist.</div>
       </div>
       <div class="feature-card reveal" style="transition-delay:.2s">
-        <span class="feature-icon">★</span>
+        <div class="feature-icon"><i data-lucide="lightbulb"></i></div>
         <div class="feature-title">Daily Wisdom</div>
         <div class="feature-desc">A word of the day, a coding or creative challenge, and time-aware greetings that know if it's 3 AM. Plus hydration and eye-strain nudges you'll actually appreciate.</div>
       </div>
       <div class="feature-card reveal" style="transition-delay:.25s">
-        <span class="feature-icon">◆</span>
+        <div class="feature-icon"><i data-lucide="gamepad-2"></i></div>
         <div class="feature-title">Mini Games</div>
         <div class="feature-desc">Rock-Paper-Scissors, AI Trivia Quiz, and 20 Questions &mdash; all from the right-click menu. Pip tracks your score and reacts with matching animations.</div>
       </div>
       <div class="feature-card reveal" style="transition-delay:.3s">
-        <span class="feature-icon">◎</span>
+        <div class="feature-icon"><i data-lucide="target"></i></div>
         <div class="feature-title">Focus &amp; Memory</div>
         <div class="feature-desc">Say "remember: X" to save a note instantly. Built-in Pomodoro fires a shout bubble at 25 minutes. She even notices when you've been staring at your screen too long.</div>
       </div>
@@ -749,6 +751,11 @@ python main.py`;
   });
 }
 
+
+// ── Lucide icons ─────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+});
 
 // ── Smooth scroll polyfill ────────────────────────────────────────────────────
 document.querySelectorAll('a[href^="#"]').forEach(a => {
