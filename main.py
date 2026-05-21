@@ -17,16 +17,19 @@ import sys
 import sys as _sys
 import threading
 import time
+from collections import deque
 from datetime import datetime, date
 
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox
-from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings
+from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QPainter, QIcon, QPixmap, QColor, QPen, QBrush
 
 
 VERSION = "1.0.0"
 
-log = logging.getLogger(__name__)
+log       = logging.getLogger("pip.main")
+_log_idle = logging.getLogger("pip.idle")
+_log_bub  = logging.getLogger("pip.bubble")
 
 
 # ── Icon factory (SVG-less QPainter icons) ────────────────────────────────────
@@ -366,6 +369,8 @@ class CompanionWindow(QWidget):
         self._interest_worker: ClaudeWorker | None = None
         self._joke_worker: ClaudeWorker | None     = None
         self._skill_tip_worker: ClaudeWorker | None = None
+        self._watch_worker: ClaudeWorker | None    = None
+        self._what_doing_worker: ClaudeWorker | None = None
         self._drag_pos: QPoint | None    = None
         self._press_global: QPoint       = QPoint()
         self._is_dragging: bool          = False
@@ -479,6 +484,18 @@ class CompanionWindow(QWidget):
         self._window_timer.timeout.connect(self._check_active_window)
         self._window_timer.start(30_000)
 
+        # ── Deep screen watcher ───────────────────────────────────────────────
+        self._last_deep_watch: float      = 0.0        # epoch of last deep tick
+        self._recent_windows: deque       = deque(maxlen=6)  # (timestamp, title) pairs
+        self._last_web_search_times: dict = {}         # context_key → epoch
+        self._last_same_window_start: float = time.time()
+        self._last_same_window_name: str    = ""
+        self._last_same_window_alerted: bool = False
+        self._deep_watch_timer = QTimer(self)
+        self._deep_watch_timer.timeout.connect(self._deep_watch_tick)
+        if self._settings.value("deep_watch", False, type=bool):
+            self._deep_watch_timer.start(3 * 60_000)    # every 3 minutes
+
         self._music_timer = QTimer(self)
         self._music_timer.timeout.connect(self._check_music)
         self._music_timer.start(45_000)
@@ -489,6 +506,22 @@ class CompanionWindow(QWidget):
         self._stats_timer = QTimer(self)
         self._stats_timer.timeout.connect(self._check_stats)
         self._stats_timer.start(5 * 60_000)   # every 5 min
+
+        # ── Wander mode (QSettings key: wander_mode, bool, default False) ────
+        self._wander_timer = QTimer(self)
+        self._wander_timer.setSingleShot(True)
+        self._wander_timer.timeout.connect(self._wander_tick)
+        self._wander_anim: QPropertyAnimation | None = None
+        if self._settings.value("wander_mode", False, type=bool):
+            self._wander_timer.start(random.randint(300, 480) * 1000)
+
+        # ── STRETCHING trigger tracking ────────────────────────────────────────
+        # Fires when CharacterRenderer reports 8+ consecutive idle frames.
+        # At 130ms per tick but next_frame fires every 4th tick ≈ 520ms each.
+        # 8 frames ≈ 4.2 seconds — checked each animation tick.
+        self._stretch_timer = QTimer(self)
+        self._stretch_timer.setSingleShot(True)
+        self._stretch_timer.timeout.connect(self._go_idle)
 
         # ── Weather (once per session) ────────────────────────────────────────
         self._weather_fetched = False
@@ -539,6 +572,7 @@ class CompanionWindow(QWidget):
             self._click_timer, self._dream_timer, self._typing_check,
             self._pomo_timer, self._window_timer, self._music_timer,
             self._stats_timer, self._hydration_timer, self._eyestrain_timer,
+            self._deep_watch_timer, self._wander_timer, self._stretch_timer,
         ):
             timer.stop()
         if hasattr(self, "_kb_listener") and self._kb_listener:
@@ -552,7 +586,7 @@ class CompanionWindow(QWidget):
         for attr in (
             "_worker", "_haiku_worker", "_trivia_worker", "_twentyq_worker",
             "_song_fact_worker", "_interest_worker", "_joke_worker",
-            "_skill_tip_worker",
+            "_skill_tip_worker", "_watch_worker", "_what_doing_worker",
         ):
             w = getattr(self, attr, None)
             if w is not None and w.isRunning():
@@ -569,6 +603,20 @@ class CompanionWindow(QWidget):
         if self._char.state != State.IDLE or self._anim_counter == 0:
             self._char.next_frame()
         self._char.tick_color()
+
+        # ── STRETCHING auto-trigger after 8+ consecutive IDLE frames ──────────
+        # next_frame for IDLE fires every 4th tick (every ~520ms).
+        # 8 idle next_frame calls ≈ 4.2s of pure IDLE.
+        if (self._char.state == State.IDLE
+                and self._char.idle_frames_total >= 8
+                and not self._stretch_timer.isActive()
+                and not self._bubble.isVisible()):
+            self._trigger_stretching()
+
+        # ── STRETCHING auto-return after 2 seconds (≈ 15 ticks × 130ms) ─────
+        if self._char.state == State.STRETCHING and self._char._stretch_frames >= 15:
+            self._go_idle()
+
         self.update()
 
     # ── Paint ─────────────────────────────────────────────────────────────────
@@ -722,7 +770,8 @@ class CompanionWindow(QWidget):
         use_mcp  = self._settings.value("use_mcp", False, type=bool)
         mcp_path = MCP_CONFIG if use_mcp and os.path.exists(MCP_CONFIG) else None
 
-        log.info("Claude call started: %r", user_text[:80])
+        log.info("Chat submitted (model=%s, chars=%d)",
+                 self._settings.value("model", "claude-sonnet-4-6"), len(user_text))
         self._call_start = time.time()
         self._worker = ClaudeWorker(
             full_prompt,
@@ -739,7 +788,7 @@ class CompanionWindow(QWidget):
 
     def _on_response(self, response: str):
         elapsed = time.time() - getattr(self, "_call_start", time.time())
-        log.info("Claude response received in %.1fs", elapsed)
+        log.info("Claude response received (elapsed=%.1fs, chars=%d)", elapsed, len(response))
         if self._pending_user_msg:
             self._history.append(("user", self._pending_user_msg))
             self._history.append(("assistant", response))
@@ -989,6 +1038,12 @@ class CompanionWindow(QWidget):
         if not self._personality._data.get("profile_complete", False):
             QTimer.singleShot(5000, self._run_profile_questionnaire)
 
+        # First-launch prompt for deep screen watcher (fires once)
+        if not self._personality._data.get("deep_watch_prompted", False):
+            self._personality._data["deep_watch_prompted"] = True
+            self._personality.save()
+            QTimer.singleShot(8000, self._prompt_deep_watch_enable)
+
     def _second_pip_greet(self):
         self._char.set_state(State.HAPPY)
         greets = ["hi!! 👋", "oh, a twin!~", "heyyy~", "another me! ✨"]
@@ -1049,7 +1104,7 @@ class CompanionWindow(QWidget):
             weights=[28, 18, 13, 16, 9, 6, 10],
         )[0]
 
-        log.info("Idle event: %s", ev)
+        _log_idle.info("Idle event fired (type=%s)", ev)
 
         if ev == "quip":
             text, state_name = self._personality.random_quip_with_state()
@@ -1515,7 +1570,7 @@ class CompanionWindow(QWidget):
                     lines = result.stdout.strip().splitlines()
                     QTimer.singleShot(0, lambda: self._react_git_activity(lines))
             except Exception:
-                pass
+                log.debug("git activity check failed", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
     def _react_git_activity(self, commits: list):
@@ -1880,7 +1935,7 @@ class CompanionWindow(QWidget):
             self._personality.write_journal_entry()
             self._personality.save()
         except Exception:
-            pass
+            log.error("Error writing journal entry", exc_info=True)
 
     # ── Second Pip ────────────────────────────────────────────────────────────
 
@@ -1936,9 +1991,9 @@ class CompanionWindow(QWidget):
             self._bubble_queue.pop()  # drop the lowest-priority tail
 
     def _show_bubble_now(self, text: str, style: str):
-        log.info("Bubble shown: style=%s len=%d", style, len(text))
-        anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
         words = len(text.split())
+        _log_bub.info("Bubble shown (style=%s, words=%d)", style, words)
+        anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
         duration_ms = max(6000, words * 300)
         self._bubble.show_text(text, anchor, duration_ms, style=style)
 
@@ -1981,6 +2036,9 @@ class CompanionWindow(QWidget):
 
         act = menu.addAction(_icon_chat(), f"Chat with {self._personality.name}")
         act.triggered.connect(self._open_chat)
+
+        act = menu.addAction(_icon_target(), "What am I doing?")
+        act.triggered.connect(self._what_am_i_doing)
 
         act = menu.addAction(_icon_sliders(), "Control Panel")
         act.triggered.connect(self._open_panel)
@@ -2081,6 +2139,17 @@ class CompanionWindow(QWidget):
         if not focus_mode_new and self._focus_mode:
             self._focus_mode = False
             self._schedule_idle()
+        # Deep screen watcher toggle
+        deep_watch = self._settings.value("deep_watch", False, type=bool)
+        if deep_watch and not self._deep_watch_timer.isActive():
+            self._deep_watch_timer.start(3 * 60_000)
+            self._show_bubble(
+                "Deep screen watcher ON! I'll keep an eye on what you're up to. 👁️",
+                style=THOUGHT, priority=BUBBLE_HIGH,
+            )
+            self._return_timer.start(5000)
+        elif not deep_watch and self._deep_watch_timer.isActive():
+            self._deep_watch_timer.stop()
 
     def _rename(self):
         name, ok = QInputDialog.getText(
@@ -2090,6 +2159,246 @@ class CompanionWindow(QWidget):
         )
         if ok and name.strip():
             self._personality.name = name.strip()
+
+    # ── Deep Screen Watcher ───────────────────────────────────────────────────
+
+    # Code editor detection: filename extensions that trigger a tip
+    _CODE_EDITORS = ("code", "vscode", "vim", "nvim", "nano", "gedit",
+                     "pycharm", "emacs", "sublime", "kate", "neovide",
+                     "vscodium", "atom", "lapce")
+    _CODE_EXTENSIONS = {
+        ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript",
+        ".go": "Go", ".rs": "Rust", ".cpp": "C++", ".c": "C",
+        ".java": "Java", ".rb": "Ruby", ".php": "PHP",
+        ".swift": "Swift", ".kt": "Kotlin", ".cs": "C#",
+        ".jsx": "React (JSX)", ".tsx": "React (TSX)",
+    }
+    # Context keys for web-search cooldown (fires at most once per 30 min each)
+    _WEB_SEARCH_CONTEXTS = {
+        "stack overflow": "Stack Overflow",
+        "github": "GitHub",
+        "react":  "React",
+        "django": "Django",
+        "docker": "Docker",
+        "kubernetes": "Kubernetes",
+        "postgresql": "PostgreSQL",
+        "mysql": "MySQL",
+        "mongodb": "MongoDB",
+        "redis": "Redis",
+        "nginx": "Nginx",
+        "vim": "Vim",
+        "nvim": "Neovim",
+        "rust": "Rust",
+        "python": "Python",
+        "javascript": "JavaScript",
+        "typescript": "TypeScript",
+    }
+
+    def _prompt_deep_watch_enable(self):
+        """One-time first-launch invite to enable deep screen watcher."""
+        if self._settings.value("deep_watch", False, type=bool):
+            return
+        self._char.set_state(State.WAVING)
+        self._show_bubble(
+            "Psst — want me to watch what you're working on and give you tips? "
+            "Enable 'Deep screen watcher' in Control Panel → Settings! 👁️",
+            style=THOUGHT, priority=BUBBLE_NORMAL,
+        )
+        self._return_timer.start(10000)
+
+    def _get_active_window_title(self) -> str:
+        """Synchronously fetch the active window title (call from bg thread only)."""
+        try:
+            result = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname"],
+                capture_output=True, text=True, timeout=2,
+            )
+            return result.stdout.strip()
+        except Exception:
+            return ""
+
+    def _deep_watch_tick(self):
+        """Fired every 3 minutes when deep_watch is enabled. Runs all deep-watch checks."""
+        if self._focus_mode or self._minimized:
+            return
+        if self._watch_worker and self._watch_worker.isRunning():
+            return   # previous call still in flight
+        threading.Thread(target=self._deep_watch_tick_bg, daemon=True).start()
+
+    def _deep_watch_tick_bg(self):
+        """Background thread: gather window title, dispatch checks via QTimer."""
+        title = self._get_active_window_title()
+        if not title:
+            return
+        now = time.time()
+
+        # Record window in recent-windows deque (for juggling detection)
+        QTimer.singleShot(0, lambda t=title, ts=now: self._record_window(t, ts))
+
+        title_lower = title.lower()
+
+        # --- Check 1: same-window for >45 minutes ---
+        QTimer.singleShot(0, lambda t=title, ts=now: self._maybe_alert_long_session(t, ts))
+
+        # --- Check 2: code file detection ---
+        for ext, lang in self._CODE_EXTENSIONS.items():
+            if ext in title_lower:
+                # Extract filename: last token before " -" or end
+                filename = title.split(" - ")[0].strip() if " - " in title else title.split("/")[-1]
+                QTimer.singleShot(
+                    random.randint(2 * 60_000, 5 * 60_000),
+                    lambda fn=filename, l=lang: self._deep_watch_code_tip(fn, l),
+                )
+                break
+
+        # --- Check 3: web search optimization for recognized context ---
+        for keyword, context in self._WEB_SEARCH_CONTEXTS.items():
+            if keyword in title_lower:
+                last = self._last_web_search_times.get(context, 0)
+                if now - last > 30 * 60:   # at most once per 30 min
+                    self._last_web_search_times[context] = now
+                    QTimer.singleShot(5000, lambda c=context: self._deep_watch_web_tip(c))
+                break
+
+    def _record_window(self, title: str, ts: float):
+        """Record window visit; check for juggling pattern."""
+        self._recent_windows.append((ts, title))
+        self._check_juggling()
+
+    def _check_juggling(self):
+        """If user switched between >5 distinct apps in <3 minutes, comment."""
+        if len(self._recent_windows) < 6:
+            return
+        oldest_ts = self._recent_windows[0][0]
+        newest_ts = self._recent_windows[-1][0]
+        if newest_ts - oldest_ts > 3 * 60:
+            return  # spread over more than 3 min — not juggling
+        titles = {t for _, t in self._recent_windows}
+        if len(titles) >= 5:
+            self._recent_windows.clear()   # reset to avoid repeat
+            if self._char.state in (State.IDLE, State.HAPPY):
+                self._char.set_state(State.THINKING)
+                self._show_bubble(
+                    "You're juggling a lot right now — want to focus on one thing? 🧘",
+                    style=SPEECH, priority=BUBBLE_NORMAL,
+                )
+                self._return_timer.start(7000)
+
+    def _maybe_alert_long_session(self, title: str, now: float):
+        """Alert if user has been on the same window for >45 minutes."""
+        if title != self._last_same_window_name:
+            self._last_same_window_name  = title
+            self._last_same_window_start = now
+            self._last_same_window_alerted = False
+            return
+        elapsed_min = (now - self._last_same_window_start) / 60
+        if elapsed_min >= 45 and not self._last_same_window_alerted:
+            self._last_same_window_alerted = True
+            app_name = title.split(" - ")[-1].strip() if " - " in title else title[:30]
+            self._char.set_state(State.WAVING)
+            self._show_bubble(
+                f"You've been deep in {app_name} for 45 minutes. How's it going? ☕",
+                style=SPEECH, priority=BUBBLE_NORMAL,
+            )
+            self._return_timer.start(7000)
+
+    def _deep_watch_code_tip(self, filename: str, language: str):
+        """Fetch a language-specific tip via Claude and show it as a thought bubble."""
+        if self._watch_worker and self._watch_worker.isRunning():
+            return
+        if not self._settings.value("deep_watch", False, type=bool):
+            return
+        self._char.set_state(State.THINKING)
+        prompt = (
+            f"The user is editing {filename} ({language}). "
+            f"Suggest one specific optimization, tip, or best practice relevant to {language}. "
+            f"Keep it to 2 sentences. Be practical and direct."
+        )
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        self._watch_worker = ClaudeWorker(
+            prompt,
+            "You are a helpful coding assistant. Be concise and specific.",
+            model=model,
+        )
+        self._watch_worker.response_ready.connect(
+            lambda tip: self._on_watch_tip(f"💻 [{language}] {tip.strip()}")
+        )
+        self._watch_worker.error_occurred.connect(lambda _: None)
+        self._watch_worker.start()
+
+    def _deep_watch_web_tip(self, context: str):
+        """Use WebSearch to find a fresh optimization tip for the current context."""
+        if self._watch_worker and self._watch_worker.isRunning():
+            return
+        if not self._settings.value("deep_watch", False, type=bool):
+            return
+        self._char.set_state(State.THINKING)
+        prompt = (
+            f"Search for 'latest {context} optimization tips 2025' and surface the single most "
+            f"practical, actionable tip you find. Keep it to 2 sentences. Be specific."
+        )
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        self._watch_worker = ClaudeWorker(
+            prompt,
+            "You are a helpful assistant surfacing practical dev tips. Be concise.",
+            model=model,
+            allowed_tools="WebSearch,WebFetch",
+        )
+        self._watch_worker.response_ready.connect(
+            lambda tip: self._on_watch_tip(f"🌐 [{context}] {tip.strip()}")
+        )
+        self._watch_worker.error_occurred.connect(lambda _: None)
+        self._watch_worker.start()
+
+    def _on_watch_tip(self, tip: str):
+        """Display a deep-watch tip in a thought bubble."""
+        if self._char.state not in (State.THINKING, State.IDLE, State.HAPPY):
+            return
+        self._char.set_state(State.THINKING)
+        self._personality.log_mood("THINKING")
+        self._show_bubble(tip, style=THOUGHT, priority=BUBBLE_NORMAL)
+        self._return_timer.start(max(8000, len(tip.split()) * 350))
+
+    def _what_am_i_doing(self):
+        """Right-click 'What am I doing?' — immediate one-sentence summary."""
+        if self._what_doing_worker and self._what_doing_worker.isRunning():
+            self._show_bubble("Still figuring it out... 🤔", priority=BUBBLE_HIGH)
+            return
+        self._char.set_state(State.THINKING)
+        threading.Thread(target=self._what_am_i_doing_bg, daemon=True).start()
+
+    def _what_am_i_doing_bg(self):
+        title = self._get_active_window_title()
+        if not title:
+            QTimer.singleShot(0, lambda: self._show_bubble(
+                "I can't see your active window right now 🤷",
+                priority=BUBBLE_HIGH,
+            ))
+            return
+        prompt = (
+            f"The user's active window title is: \"{title}\". "
+            f"In exactly one sentence, describe what they are most likely working on or doing. "
+            f"Be specific and friendly."
+        )
+        model = self._settings.value("model", "claude-sonnet-4-6")
+        QTimer.singleShot(0, lambda p=prompt, m=model: self._launch_what_doing(p, m))
+
+    def _launch_what_doing(self, prompt: str, model: str):
+        self._what_doing_worker = ClaudeWorker(
+            prompt,
+            "You are Pip, a helpful desktop companion. Reply with one friendly sentence.",
+            model=model,
+        )
+        self._what_doing_worker.response_ready.connect(self._on_what_doing_ready)
+        self._what_doing_worker.error_occurred.connect(
+            lambda e: self._show_bubble(f"Oops! {e}", priority=BUBBLE_HIGH)
+        )
+        self._what_doing_worker.start()
+
+    def _on_what_doing_ready(self, summary: str):
+        self._char.set_state(State.THINKING)
+        self._show_bubble(f"🔍 {summary.strip()}", style=THOUGHT, priority=BUBBLE_HIGH)
+        self._return_timer.start(7000)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

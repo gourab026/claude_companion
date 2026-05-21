@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 import subprocess
 from datetime import datetime as _dt
+from pathlib import Path
 
-from PyQt6.QtGui import QPainter, QColor, QIcon, QPixmap, QPen, QBrush
+from PyQt6.QtGui import QPainter, QColor, QIcon, QPixmap, QPen, QBrush, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QLineEdit, QSlider, QPushButton,
@@ -12,9 +14,11 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QDialog,
     QDialogButtonBox, QRadioButton, QButtonGroup,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QSize, QTimer
 
 from personality import Personality, DEFAULTS
+
+log = logging.getLogger("pip.main")
 
 
 # ── Icon factory ──────────────────────────────────────────────────────────────
@@ -145,6 +149,21 @@ def _tab_icon_about(size=18):
         p.setBrush(QBrush(QColor("#a892ff")))
         p.drawEllipse(int(7*m), int(4*m), int(2*m), int(2*m))
     return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_log(size=18):
+    """Terminal/console icon: a rectangle with three horizontal lines."""
+    def draw(p, s):
+        m = s / 16
+        # outer frame
+        p.drawRoundedRect(int(1.5*m), int(2*m), int(13*m), int(12*m), 1.5*m, 1.5*m)
+        # prompt chevron
+        p.drawLine(int(3.5*m), int(6*m), int(5.5*m), int(8*m))
+        p.drawLine(int(5.5*m), int(8*m), int(3.5*m), int(10*m))
+        # cursor bar
+        p.drawLine(int(7*m), int(8*m), int(12.5*m), int(8*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
 
 LOG_FILE = os.path.join(os.path.expanduser("~"), ".pip-companion.log")
 
@@ -385,6 +404,7 @@ class ControlPanel(QWidget):
         tabs.addTab(self._wellness_tab(),    _tab_icon_wellness(),    "Wellness")
         tabs.addTab(self._focus_tab(),       _tab_icon_focus(),       "Focus")
         tabs.addTab(self._about_tab(),       _tab_icon_about(),       "About")
+        tabs.addTab(self._build_log_tab(),   _tab_icon_log(),         "Log")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -682,6 +702,21 @@ class ControlPanel(QWidget):
         plo.addWidget(reset_pos)
         lo.addWidget(pos_box)
 
+        watcher_box = QGroupBox("Screen Watcher")
+        wlo = QVBoxLayout(watcher_box)
+        self._deep_watch_cb = QCheckBox("Deep screen watcher")
+        self._deep_watch_cb.setToolTip(
+            "When enabled, Pip watches your active window every 3 minutes:\n"
+            "• Gives language-specific tips when you edit code files\n"
+            "• Searches for optimization tips for recognized tools\n"
+            "• Alerts you if you're juggling too many apps at once\n"
+            "• Nudges you after 45 minutes in the same window\n"
+            "\nDefault: off. Use 'What am I doing?' in the right-click menu anytime."
+        )
+        self._deep_watch_cb.setChecked(self._s.value("deep_watch", False, type=bool))
+        wlo.addWidget(self._deep_watch_cb)
+        lo.addWidget(watcher_box)
+
         save_btn = QPushButton("Save Settings")
         save_btn.clicked.connect(self._save_settings)
         lo.addWidget(save_btn)
@@ -903,9 +938,10 @@ class ControlPanel(QWidget):
         if self._idle_min.value() >= self._idle_max.value():
             QMessageBox.warning(self, "Invalid", "Minimum must be less than maximum.")
             return
-        self._s.setValue("model",    self._model_combo.currentText())
-        self._s.setValue("idle_min", self._idle_min.value())
-        self._s.setValue("idle_max", self._idle_max.value())
+        self._s.setValue("model",      self._model_combo.currentText())
+        self._s.setValue("idle_min",   self._idle_min.value())
+        self._s.setValue("idle_max",   self._idle_max.value())
+        self._s.setValue("deep_watch", self._deep_watch_cb.isChecked())
         self.settings_changed.emit()
         QMessageBox.information(self, "Saved", "Settings saved!")
 
