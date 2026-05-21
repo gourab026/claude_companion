@@ -4,6 +4,8 @@ A transparent, always-on-top desktop companion for Linux that lives on your scre
 talks to you through the Claude Code CLI, and develops a personality over time.
 **No Anthropic API key required** — Pip uses your existing Claude Code session.
 
+![Pip demo](marketing/assets/demo.gif)
+
 ---
 
 ## Features
