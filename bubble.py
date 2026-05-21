@@ -60,32 +60,9 @@ class BubbleWindow(QWidget):
         self._gotit.hide()
         self._gotit.mousePressEvent = lambda e: self._dismiss()
 
-        # Reaction buttons (shown after speech bubble — 3 emoji buttons)
-        self._reaction_btns: list[QLabel] = []
-        for emoji in ["👍", "😂", "🤔"]:
-            btn = QLabel(emoji, self)
-            btn.setFont(QFont("Sans", 14))
-            btn.setStyleSheet(
-                "background: rgba(30,20,50,180); border-radius: 10px; padding: 2px 4px;"
-            )
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedSize(30, 30)
-            btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            btn.hide()
-            self._reaction_btns.append(btn)
-
-        # Wire reaction clicks
-        self._reaction_btns[0].mousePressEvent = lambda e: self._on_reaction("thumbs_up", 0)
-        self._reaction_btns[1].mousePressEvent = lambda e: self._on_reaction("laugh", 1)
-        self._reaction_btns[2].mousePressEvent = lambda e: self._on_reaction("think", 2)
-
         # Callback invoked when a reaction is clicked: fn(reaction_name)
         self.on_reaction = None
-
-        # Fade timer for reaction buttons (5 seconds)
-        self._reaction_fade_timer = QTimer(self)
-        self._reaction_fade_timer.setSingleShot(True)
-        self._reaction_fade_timer.timeout.connect(self._hide_reactions)
+        self._reaction_btns: list[QLabel] = []   # kept for API compat; no buttons shown
 
         # Track double-click timing
         self._last_click_time: float = 0.0
@@ -111,7 +88,6 @@ class BubbleWindow(QWidget):
     def _dismiss(self):
         self._safety_timer.stop()
         self._hide_timer.stop()
-        self._hide_reactions()
         self._gotit.hide()
         self.hide()
         self.bubble_closed.emit()
@@ -136,7 +112,6 @@ class BubbleWindow(QWidget):
         self._interactive = interactive
         self._hovered     = False
         self._update_geometry(anchor)
-        self._hide_reactions()
 
         # Position "Got it" label bottom-right of bubble body
         if interactive:
@@ -148,7 +123,7 @@ class BubbleWindow(QWidget):
                 bh + (_GOTIT_H - self._gotit.height()) // 2,
             )
             self._hide_timer.stop()
-            self._safety_timer.start(90_000)  # 90-second safety cap
+            self._safety_timer.start(90_000)
         else:
             self._gotit.hide()
             self._safety_timer.stop()
@@ -157,31 +132,7 @@ class BubbleWindow(QWidget):
         self.show()
         self.raise_()
 
-        # Show reaction buttons for speech bubbles (non-interactive)
-        if style == SPEECH and not interactive:
-            self._place_reactions()
-            for btn in self._reaction_btns:
-                btn.show()
-                btn.setWindowOpacity(1.0)
-            self._reaction_fade_timer.start(5000)
-
-    def _place_reactions(self):
-        """Position the three reaction buttons just below the bubble body."""
-        bh = self.height() - TAIL_H  # bottom of text area
-        total_w = len(self._reaction_btns) * 32 + (len(self._reaction_btns) - 1) * 4
-        start_x = (self.width() - total_w) // 2
-        y = bh - 30 - 4   # just inside bottom of bubble
-        for i, btn in enumerate(self._reaction_btns):
-            btn.move(start_x + i * 36, y)
-
-    def _hide_reactions(self):
-        self._reaction_fade_timer.stop()
-        for btn in self._reaction_btns:
-            btn.hide()
-
     def _on_reaction(self, name: str, idx: int):
-        # Hide all reaction buttons after click
-        self._hide_reactions()
         if callable(self.on_reaction):
             self.on_reaction(name)
 
