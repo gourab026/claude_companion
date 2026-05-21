@@ -131,10 +131,13 @@ class CompanionWindow(QWidget):
         self._personality = Personality()
         self._settings    = QSettings("companion", "pip")
         self._char        = CharacterRenderer()
-        self._worker: ClaudeWorker | None       = None
-        self._haiku_worker: ClaudeWorker | None = None
-        self._trivia_worker: ClaudeWorker | None = None
-        self._twentyq_worker: ClaudeWorker | None = None
+        self._worker: ClaudeWorker | None          = None
+        self._haiku_worker: ClaudeWorker | None    = None
+        self._trivia_worker: ClaudeWorker | None   = None
+        self._twentyq_worker: ClaudeWorker | None  = None
+        self._interest_worker: ClaudeWorker | None = None
+        self._joke_worker: ClaudeWorker | None     = None
+        self._skill_tip_worker: ClaudeWorker | None = None
         self._drag_pos: QPoint | None    = None
         self._press_global: QPoint       = QPoint()
         self._is_dragging: bool          = False
@@ -315,6 +318,18 @@ class CompanionWindow(QWidget):
                 self._kb_listener.stop()
             except Exception:
                 pass
+        # Stop all running QThread workers before the window is destroyed.
+        # Failing to do this causes "QThread: Destroyed while thread is still
+        # running" → SIGABRT when the Python GC collects the objects.
+        for attr in (
+            "_worker", "_haiku_worker", "_trivia_worker", "_twentyq_worker",
+            "_song_fact_worker", "_interest_worker", "_joke_worker",
+            "_skill_tip_worker",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None and w.isRunning():
+                w.quit()
+                w.wait(2000)
         self._chat_input.hide()
         log.info("Session ended cleanly")
         event.accept()
@@ -1248,10 +1263,10 @@ class CompanionWindow(QWidget):
         sys_p = self._personality.get_system_prompt()
         prompt = f"Share one surprising, little-known fact about {topic}. Keep it to 1-2 sentences. Make it genuinely interesting."
         model = self._settings.value("model", "claude-sonnet-4-6")
-        worker = ClaudeWorker(prompt, sys_p, model=model)
-        worker.response_ready.connect(lambda f: self._on_interest_fact(f))
-        worker.error_occurred.connect(lambda _: None)
-        worker.start()
+        self._interest_worker = ClaudeWorker(prompt, sys_p, model=model)
+        self._interest_worker.response_ready.connect(lambda f: self._on_interest_fact(f))
+        self._interest_worker.error_occurred.connect(lambda _: None)
+        self._interest_worker.start()
         self._char.set_state(State.THINKING)
 
     def _on_interest_fact(self, fact: str):
@@ -1299,10 +1314,10 @@ class CompanionWindow(QWidget):
         sys_p = self._personality.get_system_prompt()
         prompt = "Tell me one short, clever programming joke. Max 2 sentences. Make it genuinely funny."
         model = self._settings.value("model", "claude-sonnet-4-6")
-        worker = ClaudeWorker(prompt, sys_p, model=model)
-        worker.response_ready.connect(lambda j: self._on_joke_ready(j))
-        worker.error_occurred.connect(lambda _: None)
-        worker.start()
+        self._joke_worker = ClaudeWorker(prompt, sys_p, model=model)
+        self._joke_worker.response_ready.connect(lambda j: self._on_joke_ready(j))
+        self._joke_worker.error_occurred.connect(lambda _: None)
+        self._joke_worker.start()
 
     def _on_joke_ready(self, joke: str):
         self._char.set_state(State.DANCING)
@@ -1352,10 +1367,10 @@ class CompanionWindow(QWidget):
         sys_p = self._personality.get_system_prompt()
         prompt = f"Give one practical, actionable tip about {topic}. 1-2 sentences max. Make it immediately useful."
         model = self._settings.value("model", "claude-sonnet-4-6")
-        worker = ClaudeWorker(prompt, sys_p, model=model)
-        worker.response_ready.connect(lambda t: self._on_skill_tip(t))
-        worker.error_occurred.connect(lambda _: None)
-        worker.start()
+        self._skill_tip_worker = ClaudeWorker(prompt, sys_p, model=model)
+        self._skill_tip_worker.response_ready.connect(lambda t: self._on_skill_tip(t))
+        self._skill_tip_worker.error_occurred.connect(lambda _: None)
+        self._skill_tip_worker.start()
         self._char.set_state(State.THINKING)
 
     def _on_skill_tip(self, tip: str):
