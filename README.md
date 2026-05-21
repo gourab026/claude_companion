@@ -1,5 +1,7 @@
 # Pip — Pixel-Art Desktop Companion ![Static Badge](https://img.shields.io/badge/claude-code-orange)
 
+**Homepage:** https://meet-pip.netlify.app/
+
 A transparent, always-on-top desktop companion for Linux that lives on your screen,
 talks to you through the Claude Code CLI, and develops a personality over time.
 **No Anthropic API key required** — Pip uses your existing Claude Code session.
