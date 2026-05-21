@@ -6,7 +6,7 @@ Features: Enter to send, Escape to cancel, Up/Down for message history,
 click-outside (WindowDeactivate) to dismiss, busy-state placeholder.
 """
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QPushButton, QLabel, QVBoxLayout
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QEvent, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QEvent, QSize, QRectF
 from PyQt6.QtGui import QPainter, QColor, QPainterPath, QFont
 
 _BG     = QColor(20, 16, 32, 248)
@@ -88,7 +88,7 @@ class ChatInputWidget(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()
-        path.addRoundedRect(self.rect().adjusted(1, 1, -1, -1), RADIUS, RADIUS)
+        path.addRoundedRect(QRectF(self.rect().adjusted(1, 1, -1, -1)), RADIUS, RADIUS)
         p.fillPath(path, _BG)
         p.setPen(_BORDER)
         p.drawPath(path)
