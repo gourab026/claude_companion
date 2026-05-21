@@ -21,12 +21,240 @@ from datetime import datetime, date
 
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings
-from PyQt6.QtGui import QPainter
+from PyQt6.QtGui import QPainter, QIcon, QPixmap, QColor, QPen, QBrush
 
 
 VERSION = "1.0.0"
 
 log = logging.getLogger(__name__)
+
+
+# ── Icon factory (SVG-less QPainter icons) ────────────────────────────────────
+
+def _make_icon(draw_fn, color: str = "#a892ff", size: int = 16) -> QIcon:
+    """Create a QIcon by drawing with QPainter onto a transparent pixmap."""
+    px = QPixmap(size, size)
+    px.fill(Qt.GlobalColor.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    c = QColor(color)
+    pen = QPen(c, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    draw_fn(p, size)
+    p.end()
+    return QIcon(px)
+
+
+def _icon_chat(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        # bubble body
+        p.drawRoundedRect(int(1.5*m), int(1.5*m), int(13*m), int(10*m), 2*m, 2*m)
+        # tail
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        tail = QPolygonF([QPointF(3*m, 11.5*m), QPointF(1*m, 14.5*m), QPointF(6*m, 11.5*m)])
+        p.drawPolyline(tail)
+    return _make_icon(draw, color, size)
+
+
+def _icon_sliders(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawLine(int(1*m), int(4*m),  int(10*m), int(4*m))
+        p.drawLine(int(1*m), int(8*m),  int(13*m), int(8*m))
+        p.drawLine(int(1*m), int(12*m), int(10*m), int(12*m))
+        p.setBrush(QBrush(QColor(color)))
+        p.drawEllipse(int(11*m), int(2.5*m), int(3*m), int(3*m))
+        p.drawEllipse(int(4*m),  int(6.5*m), int(3*m), int(3*m))
+        p.drawEllipse(int(11*m), int(10.5*m), int(3*m), int(3*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_timer(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawEllipse(int(1.5*m), int(1.5*m), int(13*m), int(13*m))
+        from PyQt6.QtCore import QPointF
+        cx, cy = 8*m, 8*m
+        p.drawLine(int(cx), int(cy), int(cx), int(cy - 4*m))
+        p.drawLine(int(cx), int(cy), int(cx + 2.5*m), int(cy + 1.5*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_gamepad(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawRoundedRect(int(1*m), int(4*m), int(14*m), int(8*m), 2*m, 2*m)
+        p.drawLine(int(4*m), int(8*m), int(7*m), int(8*m))
+        p.drawLine(int(5.5*m), int(6.5*m), int(5.5*m), int(9.5*m))
+        p.setBrush(QBrush(QColor(color)))
+        p.drawEllipse(int(10.5*m), int(7*m), int(1.5*m), int(1.5*m))
+        p.drawEllipse(int(12.5*m), int(5.5*m), int(1.5*m), int(1.5*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_scissors(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(int(2*m), int(2*m), int(4*m), int(4*m))
+        p.drawEllipse(int(2*m), int(10*m), int(4*m), int(4*m))
+        p.drawLine(int(14*m), int(2.5*m), int(5.5*m), int(10.5*m))
+        p.drawLine(int(9.5*m), int(9.5*m), int(14*m), int(13.5*m))
+        p.drawLine(int(5.5*m), int(5.5*m), int(8*m), int(8*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_clipboard(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawRoundedRect(int(3*m), int(2.5*m), int(10*m), int(12*m), 1.5*m, 1.5*m)
+        p.drawRoundedRect(int(5.5*m), int(1*m), int(5*m), int(3*m), 1*m, 1*m)
+    return _make_icon(draw, color, size)
+
+
+def _icon_trash(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawLine(int(1.5*m), int(4*m), int(14.5*m), int(4*m))
+        p.drawRoundedRect(int(3.5*m), int(4*m), int(9*m), int(10*m), 1*m, 1*m)
+        p.drawLine(int(6.5*m), int(7*m), int(6.5*m), int(11*m))
+        p.drawLine(int(9.5*m), int(7*m), int(9.5*m), int(11*m))
+        p.drawRoundedRect(int(5.5*m), int(1.5*m), int(5*m), int(2.5*m), 1*m, 1*m)
+    return _make_icon(draw, color, size)
+
+
+def _icon_users(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(int(4*m), int(2*m), int(5*m), int(5*m))
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QPolygonF
+        p.drawLine(int(1*m), int(14*m), int(12*m), int(14*m))
+        p.drawLine(int(1*m), int(14*m), int(1*m), int(12*m))
+        p.drawArc(int(1*m), int(8*m), int(11*m), int(6*m), 0, 180*16)
+        # second person hint
+        p.drawEllipse(int(10*m), int(3*m), int(3.5*m), int(3.5*m))
+        p.drawLine(int(12*m), int(14*m), int(15*m), int(14*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_target(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(int(1*m), int(1*m), int(14*m), int(14*m))
+        p.drawEllipse(int(4*m), int(4*m), int(8*m), int(8*m))
+        p.setBrush(QBrush(QColor(color)))
+        p.drawEllipse(int(6.5*m), int(6.5*m), int(3*m), int(3*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_wind(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawLine(int(1*m), int(5*m), int(11*m), int(5*m))
+        p.drawArc(int(8.5*m), int(2*m), int(5.5*m), int(5.5*m), 90*16, 270*16)
+        p.drawLine(int(1*m), int(9*m), int(13*m), int(9*m))
+        p.drawArc(int(9.5*m), int(6.5*m), int(5*m), int(5*m), 90*16, -270*16)
+        p.drawLine(int(1*m), int(13*m), int(11*m), int(13*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_bar_chart(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 2 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawLine(int(4*m),  int(13*m), int(4*m),  int(8*m))
+        p.drawLine(int(8*m),  int(13*m), int(8*m),  int(2*m))
+        p.drawLine(int(12*m), int(13*m), int(12*m), int(5*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_edit(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        # pencil tip going to top-right
+        p.drawLine(int(11*m), int(2.5*m), int(13.5*m), int(5*m))
+        p.drawLine(int(2*m),  int(12*m),  int(11*m),   int(2.5*m))
+        p.drawLine(int(13.5*m), int(5*m), int(4.5*m), int(14*m))
+        p.drawLine(int(2*m),  int(12*m),  int(1.5*m),  int(14.5*m))
+        p.drawLine(int(1.5*m), int(14.5*m), int(4.5*m), int(14*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_exit(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        # door
+        p.drawLine(int(6*m), int(2*m), int(2*m), int(2*m))
+        p.drawLine(int(2*m), int(2*m), int(2*m), int(14*m))
+        p.drawLine(int(2*m), int(14*m), int(6*m), int(14*m))
+        # arrow
+        p.drawLine(int(8*m), int(8*m), int(14.5*m), int(8*m))
+        p.drawLine(int(11.5*m), int(5*m), int(14.5*m), int(8*m))
+        p.drawLine(int(11.5*m), int(11*m), int(14.5*m), int(8*m))
+    return _make_icon(draw, color, size)
+
+
+def _icon_bookmark(color="#a892ff", size=16):
+    def draw(p, s):
+        m = s / 16
+        pen = QPen(QColor(color), 1.5 * m, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        pts = QPolygonF([
+            QPointF(3*m, 1.5*m), QPointF(13*m, 1.5*m),
+            QPointF(13*m, 14.5*m), QPointF(8*m, 10.5*m),
+            QPointF(3*m, 14.5*m),
+        ])
+        p.drawPolygon(pts)
+    return _make_icon(draw, color, size)
 
 
 def _except_hook(exc_type, exc_value, exc_tb):
@@ -1724,44 +1952,96 @@ class CompanionWindow(QWidget):
 
     def _show_menu(self, pos: QPoint):
         menu = QMenu()
-        menu.addAction(f"Chat with {self._personality.name}", self._open_chat)
-        menu.addAction("Control Panel", self._open_panel)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                border-radius: 8px;
+                padding: 4px;
+                color: #c0b0d8;
+                font-size: 13px;
+            }
+            QMenu::item {
+                padding: 7px 16px 7px 8px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #2d2540;
+                color: #ffffff;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #2d2540;
+                margin: 3px 8px;
+            }
+            QMenu::icon {
+                padding-left: 6px;
+            }
+        """)
+
+        act = menu.addAction(_icon_chat(), f"Chat with {self._personality.name}")
+        act.triggered.connect(self._open_chat)
+
+        act = menu.addAction(_icon_sliders(), "Control Panel")
+        act.triggered.connect(self._open_panel)
         menu.addSeparator()
 
-        pomo_label = "Stop Pomodoro ⏹" if self._pomo_running else "Start Pomodoro 🍅"
-        menu.addAction(pomo_label, self._start_pomodoro)
-        menu.addAction("Rock Paper Scissors 🪨", self._play_rps)
-        menu.addAction("Trivia Quiz 🎯", self._play_trivia)
-        menu.addAction("20 Questions 🔍", self._play_twenty_q)
+        pomo_label = "Stop Pomodoro" if self._pomo_running else "Start Pomodoro"
+        act = menu.addAction(_icon_timer(), pomo_label)
+        act.triggered.connect(self._start_pomodoro)
+
+        act = menu.addAction(_icon_scissors(), "Rock Paper Scissors")
+        act.triggered.connect(self._play_rps)
+
+        act = menu.addAction(_icon_target(), "Trivia Quiz")
+        act.triggered.connect(self._play_trivia)
+
+        act = menu.addAction(_icon_gamepad(), "20 Questions")
+        act.triggered.connect(self._play_twenty_q)
         menu.addSeparator()
 
         notes = self._personality.get_notes()
-        notes_label = f"My Notes 📌 ({len(notes)})" if notes else "My Notes 📌 (empty)"
-        menu.addAction(notes_label, self._show_notes)
+        notes_label = f"My Notes  ({len(notes)})" if notes else "My Notes  (empty)"
+        act = menu.addAction(_icon_clipboard(), notes_label)
+        act.triggered.connect(self._show_notes)
 
-        twin_label = "Dismiss Twin 👋" if (self._second_pip and not self._second_pip.isHidden()) else "Summon Twin 👯"
-        menu.addAction(twin_label, self._spawn_second_pip)
+        twin_label = "Dismiss Twin" if (self._second_pip and not self._second_pip.isHidden()) else "Summon Twin"
+        act = menu.addAction(_icon_users(), twin_label)
+        act.triggered.connect(self._spawn_second_pip)
         menu.addSeparator()
 
         history_label = (f"Clear History  ({len(self._history) // 2} turns)"
                          if self._history else "Clear History  (empty)")
-        clear_action = menu.addAction(history_label)
+        clear_action = menu.addAction(_icon_trash(), history_label)
         clear_action.setEnabled(bool(self._history))
         clear_action.triggered.connect(self._clear_history)
         menu.addSeparator()
 
-        menu.addSeparator()
-        focus_label = "🔇 Stop Focus Mode" if self._focus_mode else "🎯 Focus Mode"
-        menu.addAction(focus_label, self._toggle_focus_mode)
-        menu.addAction("🎯 Focus Zone Timer", self._start_focus_zone)
-        menu.addAction("🌬️ Breathing Exercise", self._breathing_exercise)
-        menu.addAction("📊 Today's Stats", self._show_session_stats)
+        focus_label = "Stop Focus Mode" if self._focus_mode else "Focus Mode"
+        act = menu.addAction(_icon_target(), focus_label)
+        act.triggered.connect(self._toggle_focus_mode)
+
+        act = menu.addAction(_icon_timer(), "Focus Zone Timer")
+        act.triggered.connect(self._start_focus_zone)
+
+        act = menu.addAction(_icon_wind(), "Breathing Exercise")
+        act.triggered.connect(self._breathing_exercise)
+
+        act = menu.addAction(_icon_bar_chart(), "Today's Stats")
+        act.triggered.connect(self._show_session_stats)
+
         bookmarks = self._personality.get_bookmarks() if hasattr(self._personality, 'get_bookmarks') else []
         if bookmarks:
-            menu.addAction(f"🔖 My Bookmarks ({len(bookmarks)})", self._show_bookmarks)
+            act = menu.addAction(_icon_bookmark(), f"My Bookmarks ({len(bookmarks)})")
+            act.triggered.connect(self._show_bookmarks)
 
-        menu.addAction("Rename", self._rename)
-        menu.addAction("Quit", QApplication.quit)
+        menu.addSeparator()
+        act = menu.addAction(_icon_edit(), "Rename")
+        act.triggered.connect(self._rename)
+
+        act = menu.addAction(_icon_exit("#d46080"), "Quit")
+        act.triggered.connect(QApplication.quit)
+
         menu.exec(pos)
 
     def _clear_history(self):

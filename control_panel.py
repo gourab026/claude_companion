@@ -3,7 +3,7 @@ import os
 import subprocess
 from datetime import datetime as _dt
 
-from PyQt6.QtGui import QPainter, QColor
+from PyQt6.QtGui import QPainter, QColor, QIcon, QPixmap, QPen, QBrush
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QLineEdit, QSlider, QPushButton,
@@ -12,9 +12,139 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QDialog,
     QDialogButtonBox, QRadioButton, QButtonGroup,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QSize
 
 from personality import Personality, DEFAULTS
+
+
+# ── Icon factory ──────────────────────────────────────────────────────────────
+
+def _cp_make_icon(draw_fn, color: str = "#a892ff", size: int = 18) -> QIcon:
+    px = QPixmap(size, size)
+    px.fill(Qt.GlobalColor.transparent)
+    p = QPainter(px)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color), 1.5 * (size / 16), Qt.PenStyle.SolidLine,
+               Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    draw_fn(p, size)
+    p.end()
+    return QIcon(px)
+
+
+def _tab_icon_personality(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawEllipse(int(5*m), int(1.5*m), int(6*m), int(6*m))
+        p.drawArc(int(1*m), int(9*m), int(14*m), int(7*m), 0, 180*16)
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_profile(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawEllipse(int(5*m), int(1.5*m), int(6*m), int(6*m))
+        p.drawLine(int(8*m), int(7.5*m), int(8*m), int(14*m))
+        p.drawLine(int(5*m), int(11*m), int(11*m), int(11*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_mood(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawLine(int(2*m), int(13*m), int(2*m),  int(7*m))
+        p.drawLine(int(6*m), int(13*m), int(6*m),  int(3*m))
+        p.drawLine(int(10*m), int(13*m), int(10*m), int(6*m))
+        p.drawLine(int(14*m), int(13*m), int(14*m), int(10*m))
+        p.drawLine(int(1*m),  int(13*m), int(15*m), int(13*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_journal(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawRoundedRect(int(2*m), int(1.5*m), int(12*m), int(13*m), 1.5*m, 1.5*m)
+        p.drawLine(int(5*m), int(5*m),  int(11*m), int(5*m))
+        p.drawLine(int(5*m), int(8*m),  int(11*m), int(8*m))
+        p.drawLine(int(5*m), int(11*m), int(9*m),  int(11*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_notes(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawRoundedRect(int(3*m), int(3*m), int(10*m), int(12*m), 1*m, 1*m)
+        p.drawRoundedRect(int(5.5*m), int(1*m), int(5*m), int(4*m), 1*m, 1*m)
+        p.drawLine(int(5.5*m), int(8*m),  int(10.5*m), int(8*m))
+        p.drawLine(int(5.5*m), int(11*m), int(9*m),    int(11*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_tools(size=18):
+    def draw(p, s):
+        m = s / 16
+        # wrench shape approximation
+        p.drawLine(int(3*m), int(13*m), int(9*m), int(7*m))
+        p.drawEllipse(int(1*m), int(10*m), int(4*m), int(4*m))
+        p.drawEllipse(int(10*m), int(1.5*m), int(4.5*m), int(4.5*m))
+        p.drawLine(int(9*m), int(7*m), int(13*m), int(3*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_settings(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawEllipse(int(5.5*m), int(5.5*m), int(5*m), int(5*m))
+        # gear teeth approximation - 4 lines at cardinal points
+        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            p.drawLine(int((8+dx*3)*m), int((8+dy*3)*m),
+                       int((8+dx*5)*m), int((8+dy*5)*m))
+        for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+            p.drawLine(int((8+dx*2.5)*m), int((8+dy*2.5)*m),
+                       int((8+dx*4)*m), int((8+dy*4)*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_wellness(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        pts = QPolygonF([
+            QPointF(8*m,  14*m),
+            QPointF(2*m,  8*m),
+            QPointF(2*m,  5.5*m),
+            QPointF(4.5*m, 3*m),
+            QPointF(8*m,  6*m),
+            QPointF(11.5*m, 3*m),
+            QPointF(14*m,  5.5*m),
+            QPointF(14*m,  8*m),
+        ])
+        p.drawPolygon(pts)
+    return _cp_make_icon(draw, "#d46080", size)
+
+
+def _tab_icon_focus(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(int(1*m), int(1*m), int(14*m), int(14*m))
+        p.drawEllipse(int(4.5*m), int(4.5*m), int(7*m), int(7*m))
+        p.setBrush(QBrush(QColor("#a892ff")))
+        p.drawEllipse(int(6.5*m), int(6.5*m), int(3*m), int(3*m))
+    return _cp_make_icon(draw, "#a892ff", size)
+
+
+def _tab_icon_about(size=18):
+    def draw(p, s):
+        m = s / 16
+        p.drawEllipse(int(1*m), int(1*m), int(14*m), int(14*m))
+        p.drawLine(int(8*m), int(7*m), int(8*m), int(12*m))
+        p.setBrush(QBrush(QColor("#a892ff")))
+        p.drawEllipse(int(7*m), int(4*m), int(2*m), int(2*m))
+    return _cp_make_icon(draw, "#a892ff", size)
 
 LOG_FILE = os.path.join(os.path.expanduser("~"), ".pip-companion.log")
 
@@ -30,22 +160,234 @@ class ControlPanel(QWidget):
         self._s   = settings
         self._mcp = mcp_config_path
         self.setWindowTitle("Pip — Control Panel")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(460)
         self.setWindowFlags(Qt.WindowType.Window)
 
+        # ── Dark theme stylesheet ─────────────────────────────────────────────
+        self.setStyleSheet("""
+            QWidget {
+                background: #0f0d1a;
+                color: #c0b0d8;
+                font-family: 'Inter', 'Segoe UI', sans-serif;
+                font-size: 13px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #2d2540;
+                border-radius: 8px;
+                background: #1a1625;
+                margin-top: -1px;
+            }
+            QTabBar::tab {
+                background: transparent;
+                color: #5a4f70;
+                padding: 8px 14px;
+                border-radius: 6px;
+                margin: 2px 1px;
+                min-width: 0px;
+            }
+            QTabBar::tab:selected {
+                background: #2d2540;
+                color: #a892ff;
+                font-weight: 600;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #1f1830;
+                color: #8878a0;
+            }
+            QPushButton {
+                background: #1a1625;
+                color: #a892ff;
+                border: 1px solid #2d2540;
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: #2d2540;
+                border-color: #7860d4;
+            }
+            QPushButton:pressed {
+                background: #7860d4;
+                color: #ffffff;
+            }
+            QLineEdit, QTextEdit, QPlainTextEdit {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                border-radius: 6px;
+                padding: 6px 10px;
+                color: #c0b0d8;
+                selection-background-color: #7860d4;
+            }
+            QLineEdit:focus, QTextEdit:focus {
+                border-color: #7860d4;
+            }
+            QSpinBox {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #c0b0d8;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                background: #2d2540;
+                border: none;
+                border-radius: 3px;
+                width: 16px;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background: #7860d4;
+            }
+            QComboBox {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                border-radius: 6px;
+                padding: 5px 10px;
+                color: #c0b0d8;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                width: 10px;
+                height: 10px;
+            }
+            QComboBox QAbstractItemView {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                color: #c0b0d8;
+                selection-background-color: #7860d4;
+            }
+            QCheckBox {
+                spacing: 8px;
+                color: #c0b0d8;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #2d2540;
+                border-radius: 4px;
+                background: #1a1625;
+            }
+            QCheckBox::indicator:checked {
+                background: #7860d4;
+                border-color: #7860d4;
+            }
+            QLabel {
+                color: #8878a0;
+            }
+            QListWidget {
+                background: #1a1625;
+                border: 1px solid #2d2540;
+                border-radius: 6px;
+                color: #c0b0d8;
+            }
+            QListWidget::item:selected {
+                background: #2d2540;
+                color: #a892ff;
+            }
+            QListWidget::item:hover {
+                background: #1f1830;
+            }
+            QScrollBar:vertical {
+                background: #0f0d1a;
+                width: 6px;
+                border-radius: 3px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #2d2540;
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #7860d4;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            QScrollBar:horizontal {
+                background: #0f0d1a;
+                height: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #2d2540;
+                border-radius: 3px;
+                min-width: 20px;
+            }
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {
+                width: 0;
+            }
+            QGroupBox {
+                border: 1px solid #2d2540;
+                border-radius: 8px;
+                margin-top: 14px;
+                padding-top: 10px;
+                color: #5a4f70;
+                font-size: 11px;
+                letter-spacing: 1px;
+                text-transform: uppercase;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 6px;
+                left: 10px;
+            }
+            QSlider::groove:horizontal {
+                background: #2d2540;
+                height: 4px;
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background: #7860d4;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                margin: -5px 0;
+            }
+            QSlider::sub-page:horizontal {
+                background: #7860d4;
+                border-radius: 2px;
+            }
+            QRadioButton {
+                spacing: 8px;
+                color: #c0b0d8;
+            }
+            QRadioButton::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #2d2540;
+                border-radius: 7px;
+                background: #1a1625;
+            }
+            QRadioButton::indicator:checked {
+                background: #7860d4;
+                border-color: #7860d4;
+            }
+            QDialogButtonBox QPushButton {
+                min-width: 70px;
+            }
+        """)
+
         tabs = QTabWidget()
-        tabs.addTab(self._personality_tab(), "Personality")
-        tabs.addTab(self._profile_tab(),     "Profile 👤")
-        tabs.addTab(self._mood_tab(),        "Mood History")
-        tabs.addTab(self._journal_tab(),     "Journal")
-        tabs.addTab(self._notes_tab(),       "Notes 📌")
-        tabs.addTab(self._tools_tab(),       "Tools & MCP")
-        tabs.addTab(self._settings_tab(),    "Settings")
-        tabs.addTab(self._wellness_tab(),    "Wellness 🌿")
-        tabs.addTab(self._focus_tab(),       "Focus 🎯")
-        tabs.addTab(self._about_tab(),       "About")
+        tabs.setIconSize(QSize(18, 18))
+        tabs.addTab(self._personality_tab(), _tab_icon_personality(), "Personality")
+        tabs.addTab(self._profile_tab(),     _tab_icon_profile(),     "Profile")
+        tabs.addTab(self._mood_tab(),        _tab_icon_mood(),        "Mood")
+        tabs.addTab(self._journal_tab(),     _tab_icon_journal(),     "Journal")
+        tabs.addTab(self._notes_tab(),       _tab_icon_notes(),       "Notes")
+        tabs.addTab(self._tools_tab(),       _tab_icon_tools(),       "Tools")
+        tabs.addTab(self._settings_tab(),    _tab_icon_settings(),    "Settings")
+        tabs.addTab(self._wellness_tab(),    _tab_icon_wellness(),    "Wellness")
+        tabs.addTab(self._focus_tab(),       _tab_icon_focus(),       "Focus")
+        tabs.addTab(self._about_tab(),       _tab_icon_about(),       "About")
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
         root.addWidget(tabs)
 
     # ═══════════════════════════════════════════ Personality tab ═════════════
@@ -119,7 +461,10 @@ class ControlPanel(QWidget):
         btns = QHBoxLayout()
         save_btn  = QPushButton("Save Changes")
         reset_btn = QPushButton("Reset Personality")
-        reset_btn.setStyleSheet("color: #c0392b;")
+        reset_btn.setStyleSheet(
+            "QPushButton { color: #d46080; border-color: #d46080; }"
+            "QPushButton:hover { background: #2d1f28; border-color: #d46080; }"
+        )
         save_btn.clicked.connect(self._save_personality)
         reset_btn.clicked.connect(self._reset_personality)
         btns.addWidget(save_btn)
@@ -674,6 +1019,10 @@ class McpServerDialog(QDialog):
         cfg = cfg or {}
         self.setWindowTitle("MCP Server")
         self.setMinimumWidth(360)
+        # Inherit dark theme from parent; ensure dialog background matches
+        self.setStyleSheet("""
+            QDialog { background: #0f0d1a; color: #c0b0d8; }
+        """)
 
         lo = QVBoxLayout(self)
 
@@ -798,8 +1147,11 @@ class MoodChart(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # Dark background fill
+        p.fillRect(self.rect(), QColor("#0f0d1a"))
+
         if sum(self._counts.values()) == 0:
-            p.setPen(QColor(150, 150, 150))
+            p.setPen(QColor("#5a4f70"))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
                        "No mood data yet today.\nInteract with Pip to see stats!")
             return
@@ -820,13 +1172,18 @@ class MoodChart(QWidget):
             y      = pad + bar_area_h - bar_h
             color  = self._COLORS[name]
 
+            # Bar background (empty track)
+            track_color = QColor(color)
+            track_color.setAlpha(40)
+            p.fillRect(x, pad, bar_w, bar_area_h, track_color)
+
             if bar_h > 0:
                 p.fillRect(x, y, bar_w, bar_h, color)
 
-            p.setPen(QColor(80, 80, 80))
+            p.setPen(QColor("#5a4f70"))
             p.drawText(x, pad + bar_area_h + label_h - 2, name[:4])
             if count:
-                p.setPen(QColor(40, 40, 40))
+                p.setPen(QColor(color))
                 p.drawText(x + 2, y - 3, str(count))
 
 
