@@ -1,656 +1,82 @@
-# Pip — Pixel-Art Desktop Companion ![Static Badge](https://img.shields.io/badge/claude-code-orange)
+# Pip — AI Desktop Companion ![Static Badge](https://img.shields.io/badge/claude-code-orange)
 
 **Homepage:** https://meet-pip.netlify.app/
 
-A transparent, always-on-top desktop companion for Linux that lives on your screen,
-talks to you through the Claude Code CLI, and develops a personality over time.
-**No Anthropic API key required** — Pip uses your existing Claude Code session.
+A tiny pixel-art character who lives in the corner of your Linux desktop.
+She chats, dances to your music, reminds you to drink water, and grows a real personality the longer you hang around.
+Powered by Claude Code — **no API key needed**.
 
 ![Pip demo](marketing/assets/demo.gif)
 
 ---
 
-## Features
+## What she does
 
-### Core
-- Pixel-art animated character with **9 states**: idle bob (with blink), talking, happy, thinking, sleeping, dancing, dragging, surprised, waving
-- AI-powered conversation via local `claude` CLI
-- Persistent speech bubbles (3 styles: speech, thought, shout) — click to dismiss early, duration scales with word count
-- Draggable and always-on-top via `WindowStaysOnTopHint`; never steals focus from the user's active window
-- **Triple-click to minimize** — triple-click Pip to shrink her to a tiny purple dot; triple-click the dot to restore
-- **Mood color tinting** — Pip's body color slowly lerps to match the current mood state
-
-### Personality & Mood
-- **Mood reactions** — animation reacts to keywords in your message and Pip's own reply
-- **Personality drift** — humor and playfulness shift slightly with every 5 interactions
-- **Relationship levels** — Pip grows from *New friend* → *Acquaintance* → *Friend* → *Best friend* as interactions accumulate; her conversational tone adapts accordingly
-- **Conversation history** — Pip remembers the last 3 exchanges per session
-- **Mood history chart** — Control Panel shows today's mood breakdown as a bar chart
-- **Daily journal** — a one-line diary entry written at shutdown; references recent topics after 100+ interactions; readable in the Journal tab
-
-### Fun Interactions
-- **Time-aware greetings** — good morning / afternoon / evening / night on first launch; "welcome back" on subsequent launches
-- **Streak tracking** — milestone messages at 7, 14, 30, 50, 100, and 365 consecutive days
-- **Birthday celebration** — on the anniversary of Pip's creation day, she dances and counts the days together
-- **Dream muttering** — Pip mutters surreal dream thoughts in a thought bubble during sleep animations
-- **Word of the day** — one obscure word + definition shown once per calendar day (thought bubble)
-- **Daily challenge** — one coding or creative prompt shown once per calendar day (thought bubble)
-- **Double-click to pet Pip** — happy reaction and a "hehe~ ♡" bubble, no AI call
-- **Drag reaction** — surprised DRAGGING face with speed lines; "wheee! ✨" on drop
-- **Clipboard watcher** — copies 30+ chars → Pip offers to explain; git commit SHAs → Pip dances and cheers; code snippets → Pip switches to THINKING and offers to review
-- **Typing-aware idle** — 20 min without typing → Pip checks in with a break reminder
-- **Screen-time nudge** — 2 continuous hours at the desk → Pip tells you to take a real break (re-arms after 90 min)
-- **Random idle events** — dance, sleep, quips, haiku, time-aware greetings fire on a configurable timer; each quip drives its matching animation
-- **Pip's haiku** — random idle event: Pip generates a fresh 5-7-5 haiku via Claude in a thought bubble
-- **Active window watcher** — every 30 s Pip peeks at the active window title and comments (browser, coding, terminal, YouTube, Discord, Spotify…)
-- **Music detector** — reads the active MPRIS player via `playerctl` every 45 s; Pip dances and names the track when a new song starts; with 30 % chance (and a 10-min minimum gap) Pip fetches an interesting fact about the song or artist via Claude and shows it in a thought bubble
-- **System stats commentator** — checks CPU/RAM via `psutil` every 5 min; reacts with concern when usage spikes above 85 %
-- **Weather reactions** — fetches local weather from `wttr.in` once per session; Pip's mood and bubble match the conditions
-- **Pomodoro timer** — 25-min focus session from the right-click menu; SHOUT bubble when done
-- **Rock-Paper-Scissors** — quick game from the right-click menu with matching animations
-- **Trivia quiz** — right-click → Pip asks a Claude-generated question, judges your answer, keeps score
-- **20 Questions** — right-click → Claude picks a secret, you ask up to 20 yes/no questions
-- **Sticky notes** — say "remember: X" in chat to save a note; view and delete notes in Control Panel
-- **Twin Pip** — summon a second companion from the menu; they wave, react, and play together
-- **Custom quips** — add your own idle phrases in the Control Panel
-- **Day-of-week awareness** — Monday motivation, Friday celebration, weekend chill mode; fires once per calendar day as an idle event
-- **Autonomous conversation** — at Friend+ level Pip occasionally initiates conversation with a question ("What are you working on?") via WAVING state
-- **SURPRISED reactions** — clipboard and git SHA events flash a SURPRISED face (wide eyes, O-mouth, speed lines) before transitioning to the main reaction
-- **Structured logging** — every session, Claude call (with timing), bubble event, and idle event is logged to `~/.pip-companion.log` with rotation (5 MB × 3 backups)
-- **Graceful shutdown** — SIGTERM/SIGINT saves journal + personality before exit; all timers and keyboard listener are stopped cleanly
-
-### Wellness & Focus
-- **Hydration reminders** — configurable interval (default 45 min); says "drink water!" in a happy bubble; respects quiet hours and focus mode
-- **Eye-strain 20-20-20** — every 20 min Pip nudges you to look away from the screen for 20 seconds
-- **Breathing exercise** — 4-7-8 guided breathing from the right-click menu or Wellness tab; Pip leads each step with timed bubbles
-- **Focus mode** — toggle from the right-click menu; pauses all idle events and hydration reminders so Pip stays completely silent
-- **Focus zone timer** — configurable work sprint (default 25 min); Pip goes quiet then celebrates with a SHOUT bubble when done
-- **Quiet hours** — set a time window (e.g. 22:00–08:00) where all proactive bubbles are suppressed
-
-### User Profile & Psychology
-- **First-run questionnaire** — on first launch, Pip asks 3 questions (role, interests, communication style) and remembers them
-- **Mood check-ins** — after every 5th interaction Pip asks how you're feeling; tailors her response to the selected mood (tired → coffee break, stressed → breathing exercise cue)
-- **Achievement system** — 7 milestone achievements unlock with a SHOUT bubble (first chat, 10/100 conversations, 7/30-day streak, first note, profile complete)
-- **Stress detection** — if Pip detects 3+ late-night sessions or long-session patterns she gently checks in
-- **System prompt personalisation** — Pip's Claude prompt includes your role, interests, communication style, and custom vocabulary so every reply feels tailored
-- **`teach: word = meaning`** shortcut — teach Pip a word; she remembers it and can use it naturally
-- **`bookmark: URL`** shortcut — save a link via chat; view bookmarks from the right-click menu or Control Panel
-
-### Knowledge & Facts
-- **Interest-based facts** — 8% chance per idle cycle: Pip fetches a surprising Claude-generated fact about one of your stated interests
-- **Skill tip of the day** — once per day (15% idle chance): Pip shares a practical tip about a topic you've discussed
-- **Code joke of the day** — once per day (10% idle chance): Pip tells a clever programming joke via Claude
-- **Whimsical wishes** — 3% idle chance: Pip shares a whimsical wish ("I wish I could taste pizza…") for a cute moment
-- **Daily learning prompt** — after 6 pm Pip asks "What's one thing you learned today?" to encourage reflection
-- **Weekly recap** — every Monday Pip summarises your total chats, streak, and recent topics
-- **Git activity reader** — 8% idle chance: Pip spots your latest git commits and cheers you on
-- **Session stats** — right-click → "Today's Stats" shows total chats, streak, and session uptime
-
-### Bubble Styles
-| Style | Appearance | Used for |
-|-------|-----------|---------|
-| `speech` | Rounded rect, triangle tail | Chat replies, quips, greetings |
-| `thought` | More rounded, dot-chain tail, blue tint | Haiku, word of day, challenge, dream, notes confirm |
-| `shout` | Spiky star-burst border, warm tint | Git commits, RPS result, pomodoro done, screen-time |
-
-### Tools & Integration
-- Web search support via `--allowedTools WebSearch,WebFetch`
-- Custom MCP server connections (stdio and HTTP/SSE) managed via the Control Panel
-- Fun MCP presets in `mcp_config.example.json` (time, fetch, filesystem, sequential-thinking)
-
-### Distribution
-- **AppImage packaging** — single portable `Pip-Companion-x86_64.AppImage` runs on any x86_64 Linux distro with no Python install needed; rebuilt with `bash build_appimage.sh`
-
----
-
-## How It Works
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     User Desktop                        │
-│                                                         │
-│   ┌──────────────┐  left-click / double-click / drag    │
-│   │  Pip Window  │ ◄────────────────────────────────    │
-│   │ (transparent │                                       │
-│   │  QWidget)    │  paintEvent clears to transparent,   │
-│   │              │  then CharacterRenderer draws        │
-│   │    [Pip]     │  directly into the window painter.   │
-│   └──────┬───────┘                                       │
-│          │ left-click (single)                          │
-│          ▼                                               │
-│   ┌──────────────┐    ┌────────────────────────────┐    │
-│   │  Chat input  │───►│      ClaudeWorker           │    │
-│   │  (QDialog)   │    │  (QThread)                  │    │
-│   └──────────────┘    │  subprocess.run(            │    │
-│                       │    "claude -p" ...)          │    │
-│   ┌──────────────┐    └────────────────────────────┘    │
-│   │ Speech Bubble│◄── response_ready signal             │
-│   │ (3 styles,   │                                       │
-│   │  click=hide) │                                       │
-│   └──────────────┘                                       │
-│                                                         │
-│   pynput listener  ──►  _last_keypress (typing idle)    │
-│   QClipboard signal ─►  git SHA / clipboard watcher     │
-│   xdotool thread   ──►  _react_to_window (win watcher)  │
-│   playerctl thread ──►  _react_to_music (MPRIS)         │
-│   psutil thread    ──►  _react_to_stats (CPU/RAM)       │
-│   urllib thread    ──►  _react_to_weather (wttr.in)     │
-│   personality.json ──►  mood_log, traits, notes, topics │
-│   QSettings        ──►  model, idle interval, position  │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Why no child widgets?
-
-On Linux/X11 the parent window's ARGB visual (which enables transparency) does **not**
-propagate to child QWidgets. Child widgets get their own X11 window with a default
-opaque background, which appears as a black box. The fix: draw everything directly
-in the top-level window's `paintEvent`, with `CompositionMode_Clear` first to erase
-to transparent, then `CompositionMode_SourceOver` to paint the character on top.
-
----
-
-## Architecture
-
-```
-companion/
-├── main.py            Entry point. CompanionWindow owns all timers and state.
-│                      Draws character directly in its paintEvent.
-│                      Handles: clipboard watcher (+ git SHA detection), pynput
-│                      keyboard listener, window watcher (xdotool thread), music
-│                      detector (playerctl thread), system stats (psutil thread),
-│                      weather fetch (urllib thread), dream muttering, haiku,
-│                      word of day, daily challenge, screen-time nudge, sticky notes,
-│                      trivia quiz, 20 questions, twin Pip, pomodoro, RPS,
-│                      day-of-week quips, autonomous prompts, structured logging,
-│                      graceful shutdown (SIGTERM/SIGINT + closeEvent).
-│                      VERSION = "1.0.0"
-│
-├── character.py       CharacterRenderer — pure drawing class (not a QWidget).
-│                      9-state animation machine: IDLE (with blink on frame 3),
-│                      TALKING, HAPPY, THINKING, SLEEPING, DANCING, DRAGGING,
-│                      SURPRISED (wide eyes, O-mouth, speed-line effects),
-│                      WAVING (alternating hand-wave at top-right).
-│                      tick_color() lerps body colour toward per-state tint target.
-│                      IDLE frame advances only every 4th tick (~2 fps).
-│
-├── personality.py     Personality — loads/saves personality.json atomically
-│                      (write→.tmp→os.replace; backs up corrupt file to .bak).
-│                      Tracks mood, traits, interaction count, topics, mood_log,
-│                      streak, journal, custom_quips, notes, last_word_day,
-│                      last_challenge_day, last_day_quip_day.
-│                      Provides: time_quip(), log_mood(), update_streak(),
-│                      write_journal_entry(), get_word_of_day(), get_daily_challenge(),
-│                      get_day_quip(), get_autonomous_prompt(),
-│                      add_note(), get_notes(), clear_note().
-│                      relationship_level / relationship_label properties.
-│                      get_system_prompt() includes familiarity tone per level.
-│
-├── claude_client.py   ClaudeWorker (QThread) — runs `claude -p` in background.
-│                      Supports --allowedTools and --mcp-config flags.
-│                      Emits response_ready or error_occurred signals.
-│                      Logs to ~/.pip-companion.log via RotatingFileHandler
-│                      (5 MB × 3 backups). NullHandler on root prevents noise.
-│
-├── bubble.py          BubbleWindow — separate top-level transparent QWidget.
-│                      Three styles: speech (default rounded + triangle tail),
-│                      thought (rounded + dot-chain tail, blue tint),
-│                      shout (spiky star-burst border, warm tint).
-│                      Click to dismiss. Duration scales with word count.
-│                      Text rendered via QRect + AlignVCenter for consistent margins
-│                      (PADDING_H=14 left/right, PADDING_V=12 top/bottom, MAX_WIDTH=300).
-│                      Returns early (no-op) when Pip is minimized.
-│
-├── control_panel.py   ControlPanel QWidget with 10 tabs:
-│                        Personality    — name, traits, mood, topics, custom quips,
-│                                         relationship level, reset
-│                        Profile 👤     — work type, communication style, interests,
-│                                         recent check-ins, achievements, vocabulary
-│                        Mood History   — bar chart of today's mood events
-│                        Journal        — last 30 diary entries, newest first
-│                        Notes 📌       — view, delete, clear sticky notes
-│                        Tools & MCP    — web search toggle, MCP server manager
-│                        Settings       — model, idle interval, position reset,
-│                                         "Open Log File" button
-│                        Wellness 🌿    — hydration toggle+interval, eye-strain toggle,
-│                                         breathing exercise launcher
-│                        Focus 🎯       — quiet hours (start/end), focus zone duration
-│                        About          — help text
-│                      McpServerDialog — add/edit stdio or HTTP MCP servers.
-│
-├── pip_companion.spec PyInstaller spec — builds the onedir bundle used in the AppImage.
-│
-├── build_appimage.sh  One-command rebuild: PyInstaller → AppDir → AppImage.
-│
-├── docs/index.html    Animated landing page — drawn pixel-art Pip on canvas with
-│                      requestAnimationFrame bob, sparkle dots, and blink animation.
-│                      Sections: hero, features, how-it-works, animation states,
-│                      relationship levels, install, contributing, footer.
-│                      Buy Me a Coffee floating button. GitHub Pages compatible.
-│
-├── mcp_config.example.json  Example MCP server configs (time, fetch, filesystem,
-│                            sequential-thinking). Copy to mcp_config.json to use.
-│
-├── personality.json   Auto-created on first run. (gitignored)
-│                      When running from AppImage: ~/.config/pip-companion/personality.json
-│
-├── mcp_config.json    Auto-created via Control Panel. (gitignored)
-│                      When running from AppImage: ~/.config/pip-companion/mcp_config.json
-│
-└── requirements.txt   PyQt6>=6.4.0, pynput>=1.7.0, psutil>=5.9 (optional)
-```
+- **AI chat** — left-click to talk; uses your local `claude` CLI session
+- **Relationship system** — grows from *New Friend* → *Best Friend* over 500+ interactions; her tone and humour actually change
+- **Music awareness** — dances when a new track starts via `playerctl`; fetches artist facts
+- **Games** — Trivia Quiz, 20 Questions, Rock-Paper-Scissors from the right-click menu
+- **Wellness** — Pomodoro timer, hydration reminders, 4-7-8 breathing, screen-time nudges
+- **Daily content** — word of the day, coding challenge, haiku, and time-aware greetings
+- **Memory** — say `remember: X` to save a note; she brings it up later
+- **Ambient awareness** — reacts to your clipboard, active window, CPU spikes, and weather
 
 ---
 
 ## Installation
 
 ```bash
-# 1. Install Python dependencies
-pip install PyQt6 pynput
-pip install psutil   # optional — needed for system stats commentator
+# 0. Clone the repo
+git clone https://github.com/gourab026/claude_companion.git
+cd claude_companion
 
-# 2. Make sure Claude Code CLI is installed and authenticated
-claude --version     # should print a version number
-claude -p "hi"       # should return a response
+# 1. Install dependencies
+pip install PyQt6 pynput
+pip install psutil        # optional — system stats reactions
+sudo apt install xdotool playerctl  # window watcher + music detection
+
+# 2. Make sure Claude Code is installed and authenticated
+claude -p "hi"            # should return a response
 
 # 3. Run
-cd /path/to/companion
 python main.py
 ```
 
-> A compositor (picom, KWin, Mutter, etc.) must be running for transparency to work.
-> On bare X11 without a compositor, the window background will appear black.
->
-> pynput requires `/dev/input` or X11 event hooks. If typing-idle doesn't work:
-> `sudo usermod -aG input $USER` (logout/login required).
->
-> `xdotool` is needed for the window-watcher: `sudo apt install xdotool`
->
-> `playerctl` is needed for music detection: `sudo apt install playerctl`
-
----
-
-## AppImage (portable, no Python needed)
-
-Download the pre-built `Pip-Companion-x86_64.AppImage` from the repo, then:
-
-```bash
-chmod +x Pip-Companion-x86_64.AppImage
-./Pip-Companion-x86_64.AppImage
-```
-
-User data is stored in `~/.config/pip-companion/` so it persists across updates.
-
-**Still required on the target machine:**
-- `claude` CLI (authenticated)
-- `xdotool` — `sudo apt install xdotool`
-- `playerctl` — `sudo apt install playerctl` (for music detection)
-- A compositor for transparency
-
-**Rebuild the AppImage after code changes:**
-```bash
-pip install pyinstaller --break-system-packages
-cd companion/
-bash build_appimage.sh   # outputs ../Pip-Companion-x86_64.AppImage
-```
+> A compositor (picom, KWin, etc.) must be running for transparency to work.
 
 ---
 
 ## Usage
 
 | Action | Result |
-|--------|--------|
-| Left-click Pip | Open chat input |
-| Double-click Pip | Pet Pip — happy reaction, no AI call |
-| Triple-click Pip | Minimize to tiny purple dot (triple-click dot to restore) |
-| Right-click Pip | Context menu |
-| Drag Pip | Move to any screen position; "wheee!" on drop |
-| Click speech bubble | Dismiss it early |
-| Right-click → Chat | Open chat input |
-| Right-click → Control Panel | Open settings, personality editor, notes, MCP config |
-| Right-click → Start Pomodoro 🍅 | Start/stop 25-minute focus timer |
-| Right-click → Rock Paper Scissors 🪨 | Quick game against Pip |
-| Right-click → Trivia Quiz 🎯 | Claude asks a trivia question; Pip keeps score |
-| Right-click → 20 Questions 🔍 | Pip thinks of something; ask up to 20 yes/no questions |
-| Right-click → My Notes 📌 | Show saved sticky notes |
-| Right-click → Summon Twin 👯 | Spawn a second Pip; they interact with each other |
-| Right-click → Clear History | Wipe this session's conversation memory |
-| Right-click → Rename | Rename Pip |
-| Chat: "remember: X" | Save X as a sticky note without an AI call |
-| Chat: "teach: word = meaning" | Teach Pip a word; she'll use it in future conversations |
-| Chat: "bookmark: URL" | Save a URL; view later from right-click → My Bookmarks |
-| Right-click → Focus Mode | Toggle silent focus mode (pauses all idle events) |
-| Right-click → Focus Zone Timer | Start a configurable work sprint (default 25 min) |
-| Right-click → Breathing Exercise | Guided 4-7-8 breathing exercise with timed bubbles |
-| Right-click → Today's Stats | Session uptime, total chats, and current streak |
-| Right-click → My Bookmarks | Open saved bookmarks in your browser |
+|---|---|
+| Left-click | Open chat |
+| Double-click | Pet Pip |
+| Triple-click | Minimize to a dot |
+| Right-click | Context menu (games, Pomodoro, settings…) |
+| Drag | Move anywhere on screen |
+| `remember: X` in chat | Save a sticky note |
+| `teach: word = meaning` | Teach Pip a new word |
 
 ---
 
-## Feature Details
+## Relationship levels
 
-### Clipboard Watcher
-
-When you copy text longer than 30 characters, Pip offers to explain it — left-click Pip
-to open the chat with it pre-filled. If the clipboard looks like a **git commit output**
-(contains a commit SHA), Pip dances and cheers instead.
-
-### Typing-Aware Idle & Screen-Time Nudge
-
-- **20 min no typing** → break reminder (resets after each)
-- **2 continuous hours active** → more urgent "take a real break" nudge in a shout bubble;
-  re-arms automatically after 90 minutes
-
-### Relationship Levels
-
-| Interactions | Level | Pip's tone |
+| Interactions | Level | What changes |
 |---|---|---|
-| 0–24 | New friend | Friendly but polite |
-| 25–99 | Acquaintance | Warmer and casual |
-| 100–499 | Friend | Playful, personal |
-| 500+ | Best friend | Very comfortable, teases gently |
-
-Shown in **Control Panel → Personality → Relationship**.
-
-### Word of the Day & Daily Challenge
-
-Both fire once per calendar day on startup (with a short delay so they don't overlap
-the greeting). Word of the day uses a thought bubble to show an obscure word and its
-definition. Daily challenge shows a coding or creative prompt.
-
-### Dream Muttering
-
-When a random sleep event fires, Pip enters SLEEPING state for ~12 seconds. After
-4–8 seconds she mutters a surreal dream thought in a thought bubble before waking up.
-
-### Pip's Haiku
-
-A random idle event (10% weight) triggers Pip to ask Claude for a coding-themed haiku.
-While Claude is thinking, Pip shows THINKING state. The haiku appears in a thought bubble.
-
-### Music Detector & Song Facts
-
-Every 45 seconds Pip runs `playerctl metadata` in a background thread. When a new track
-starts playing she switches to DANCING and names the song.
-
-With a **30 % chance** (and a minimum 10-minute gap between facts) Pip fires a background
-Claude call asking for one surprising fact about that song or artist. The fact appears
-8 seconds later in a **thought bubble** — after the dance reaction has faded — so it
-never collides with the initial greeting. If Pip doesn't recognise the song she falls
-back to a fact about the artist.
-
-Silently skips if `playerctl` is not installed (`sudo apt install playerctl`).
-
-### System Stats Commentator
-
-Every 5 minutes Pip runs `psutil.cpu_percent()` and `psutil.virtual_memory()` in a
-background thread. Reacts if CPU > 85 % or RAM > 88 %. Silently skips if `psutil`
-is not installed (`pip install psutil`).
-
-### Weather Reactions
-
-Once per session, ~8 seconds after launch, Pip fetches `wttr.in/?format=%C+%t` in a
-background thread. The condition string (sunny/rain/storm/snow/cloud…) determines
-Pip's state and bubble text. Silently skips if the network is unavailable.
-
-### Trivia Quiz
-
-Right-click → **Trivia Quiz**. Pip uses two Claude calls: one to generate a
-`QUESTION: / ANSWER:` formatted question, and one to judge your free-text answer.
-Wins and losses are tracked in memory for the session and shown in the result bubble.
-
-### 20 Questions
-
-Right-click → **20 Questions**. Claude picks a concrete secret (animal, object, or
-person). You ask yes/no questions via dialog boxes; Claude answers each one. The game
-ends when you guess correctly or exhaust all 20 questions.
-
-### Sticky Notes
-
-Type `remember: your note` (or `note: your note`) in the chat input — Pip stores the
-note locally without making an AI call and confirms with a thought bubble. View, select,
-and delete notes in **Control Panel → Notes 📌**.
-
-### Twin Pip
-
-Right-click → **Summon Twin**. A second identical Pip window appears next to the
-original. Every 20–40 seconds they exchange waves, music notes, or greetings. Right-click
-→ **Dismiss Twin** to close the second window.
-
-### Triple-Click to Minimize
-
-Triple-clicking Pip within 600 ms shrinks her window to a **20×20 purple dot** — useful
-when she's in the way but you don't want to quit. The animation and idle timers pause,
-and the bubble hides. Triple-clicking the dot restores full size and resumes all timers.
-
-Qt generates `mousePressEvent → mouseDoubleClickEvent → mousePressEvent` for a triple
-click, so click timestamps are tracked in both handlers.
-
-### Mood Color Tinting
-
-Pip's body color lerps (3 % per animation tick) toward a per-state target:
-
-| State | Colour |
-|---|---|
-| IDLE | Neutral purple |
-| HAPPY | Warm yellow-purple |
-| DANCING | Pink-purple |
-| SLEEPING | Cool blue |
-| THINKING | Deep blue-purple |
-| TALKING | Slight teal-purple |
-| DRAGGING | Vivid violet |
-| SURPRISED | Bright violet |
-| WAVING | Friendly blue-purple |
-
-### Mood History Chart & Daily Journal
-
-- **Mood History** — colour-coded bar chart of today's mood events in the Control Panel
-- **Journal** — one-line diary entry written at shutdown; references recent conversation
-  topics once 100+ interactions have accumulated; capped at 365 entries
-
-### New Animation States
-
-**SURPRISED** — wide eyes (5×4 white rect, pupil at top), small O-shaped mouth, speed-line SPARK rects radiating from both sides. Tint: bright violet. Triggered briefly before clipboard reactions and git SHA celebrations.
-
-**WAVING** — alternating hand-wave mark (2×3 LIGHT rect) at the top-right corner of the body, toggling position on alternate frames. Tint: friendly blue-purple. Used by the twin Pip greeting and autonomous conversation prompts.
-
-**IDLE blink** — on frame 3 of the IDLE animation Pip's eyes close to thin lines, giving a natural occasional blink.
-
-### Day-of-Week Awareness
-
-Once per calendar day, an idle event checks `date.today().weekday()` and fires a matching quip:
-- **Monday** → "New week, fresh start! You've got this 💪" (HAPPY)
-- **Friday** → "It's FRIDAY!! Almost there 🎉" (DANCING)
-- **Saturday / Sunday** → "It's the weekend — relax a little? 🌿" (SLEEPING)
-- Other days → no day quip (random pool fires normally)
-
-### Autonomous Conversation
-
-At **Friend+** relationship level (100+ interactions), Pip has a 20 % chance per idle cycle of initiating conversation with a question — "What are you working on?", "How's the project going?", etc. She switches to WAVING state and waits 6 seconds. No Claude call is made; these are pre-written prompts from `get_autonomous_prompt()`.
-
-### Structured Logging
-
-All events are written to **`~/.pip-companion.log`** via a `RotatingFileHandler` (5 MB max, 3 backup files). Logged events include:
-
-| Event | Level |
-|---|---|
-| Session start (version, model) | INFO |
-| Session end | INFO |
-| Claude call started (prompt preview) | INFO |
-| Claude response received (elapsed time) | INFO |
-| Bubble shown (style, text length) | INFO |
-| Idle event fired (event name) | INFO |
-| Stale worker detected | WARNING |
-| Uncaught exception | CRITICAL |
-
-Open the log from **Control Panel → Settings → Open Log File** (uses `xdg-open`).
-
-### Graceful Shutdown
-
-Pip handles `SIGTERM` and `SIGINT` by calling `app.quit()`, which triggers `closeEvent`. That handler:
-1. Writes today's journal entry
-2. Saves `personality.json` atomically (`.tmp` → `os.replace`)
-3. Stops every timer
-4. Stops the `pynput` keyboard listener
-5. Logs "Session ended cleanly"
-
-`personality.json` is also written atomically on every save — a `.tmp` file is written first, then renamed, so a crash can never produce partial JSON. A corrupt file is backed up to `.bak` before falling back to defaults.
-
-### Active Window Watcher
-
-Every 30 s Pip checks the active window title (via `xdotool`) and with 35 % chance
-comments on what you're doing. Only fires when Pip is IDLE.
-
-### Time-Aware Greetings & Streak
-
-On the **first launch of each day**:
-- 5 am – 12 pm → morning quip
-- 12 pm – 5 pm → afternoon quip
-- 5 pm – 9 pm → evening quip
-- 9 pm – 5 am → night quip
-
-Streak milestones fire at **7, 14, 30, 50, 100, 365** days.
-
-### Enabling Web Search
-
-Open **Control Panel → Tools & MCP**, check **Enable Web Search**, save.
-This passes `--allowedTools WebSearch,WebFetch` to the Claude CLI.
-
-### Fun MCP Servers
-
-Copy `mcp_config.example.json` to `mcp_config.json` and enable MCP in
-**Control Panel → Tools & MCP**:
-
-| Server | What it does | Requires |
-|--------|-------------|---------|
-| `time` | Pip knows the current time in any timezone | `pip install uvx` |
-| `fetch` | Pip can read any URL/webpage | Node.js |
-| `filesystem` | Pip can read files in a directory you specify | Node.js |
-| `sequential-thinking` | Step-by-step reasoning for complex problems | Node.js |
+| 0–24 | New friend | Polite and curious |
+| 25–99 | Acquaintance | Warmer, more casual |
+| 100–499 | Friend | Playful and personal |
+| 500+ | Best friend | Teases you, writes diary entries about your day |
 
 ---
 
-## Configuration Reference
+## Stack
 
-### personality.json
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Pip's name |
-| `mood` | string | Current mood (happy / curious / playful / sleepy / excited) |
-| `humor` | float 0–1 | How funny Pip tries to be |
-| `playfulness` | float 0–1 | How often Pip jokes vs. stays on topic |
-| `helpfulness` | float 0–1 | How much detail Pip gives on technical questions |
-| `interactions` | int | Total conversation count (drives relationship level) |
-| `topics` | list[str] | Up to 30 recent topics discussed |
-| `mood_log` | list[obj] | Up to 300 recent mood events `{s, t}` |
-| `streak` | int | Consecutive daily launch count |
-| `last_launch` | ISO date | Date of last launch |
-| `custom_quips` | list[str] | User-defined random idle phrases |
-| `journal` | list[obj] | Up to 365 daily diary entries `{date, entry, moods}` |
-| `notes` | list[obj] | Sticky notes `{text, t}`, capped at 50 |
-| `last_word_day` | ISO date | Date word-of-the-day was last shown |
-| `last_challenge_day` | ISO date | Date daily challenge was last shown |
-| `last_day_quip_day` | ISO date | Date day-of-week quip was last shown |
-| `last_joke_day` | ISO date | Date code-joke was last shown |
-| `last_skill_tip_day` | ISO date | Date skill-tip was last shown |
-| `last_learn_day` | ISO date | Date daily learning prompt was last shown |
-| `user_profile` | object | `work_type`, `interests[]`, `communication_style`, `checkins[]`, `achievements_unlocked[]`, `bookmarks[]`, `vocabulary{}`, `late_nights`, `custom_greeting` |
-| `profile_complete` | bool | Whether the first-run questionnaire was completed |
-| `last_checkin_day` | ISO date | Date of last mood check-in |
-| `hydration_enabled` | bool | Whether hydration reminders are on |
-| `hydration_interval_min` | int | Minutes between hydration reminders (default 45) |
-| `eyestrain_enabled` | bool | Whether 20-20-20 reminders are on |
-| `focus_mode` | bool | Whether focus mode is currently active |
-| `quiet_hours_enabled` | bool | Whether quiet hours are configured |
-| `quiet_hours_start` | int 0–23 | Hour when quiet hours begin |
-| `quiet_hours_end` | int 0–23 | Hour when quiet hours end |
-| `custom_greeting` | string | User-set greeting override for Pip |
-| `focus_zone_minutes` | int | Duration in minutes for Focus Zone timer |
-| `pip_palette` | string | Color palette name (currently `"default"`) |
-| `created` | ISO datetime | When Pip was first run |
-| `last_seen` | ISO datetime | Last save timestamp |
-
-### QSettings keys (`companion/pip`)
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `model` | `claude-sonnet-4-6` | Claude model used |
-| `idle_min` | `30` | Min seconds between random idle events |
-| `idle_max` | `90` | Max seconds between random idle events |
-| `allowed_tools` | `""` | Comma-separated tool names (e.g. `WebSearch,WebFetch`) |
-| `use_mcp` | `false` | Whether to pass `--mcp-config` to Claude |
-| `x` / `y` | bottom-right | Saved window position |
+Python 3.9+ · PyQt6 · Claude Code CLI · `playerctl` · `xdotool` · `psutil`
 
 ---
 
-## TODO — Features to Add
+## License
 
-### Cross-platform
-
-- [ ] **Windows support** — replace `xdotool` with `pywin32` (`win32gui`) for window watcher; replace `playerctl` with Windows Media Control API (`winsdk`); PyInstaller → `.exe`; ship as a zip or NSIS installer
-- [ ] **macOS support** — replace `xdotool` with `pyobjc` / AppleScript for window watcher; replace `playerctl` with AppleScript (`osascript`) or `pyobjc-framework-MediaPlayer` for Spotify/Music; PyInstaller → `.app` bundle → `hdiutil` → `.dmg`
-- [ ] **CI build matrix** — GitHub Actions workflow that builds AppImage (Linux), `.exe` (Windows), `.dmg` (macOS) on every tag
-
-### Features
-- [x] **Music detector + song facts** — playerctl/MPRIS track detection; random Claude fact about the song/artist in a thought bubble (30 % chance, 10-min gap)
-- [x] **New animation states** — SURPRISED (wide eyes, speed lines) and WAVING (hand-wave effect); IDLE blink on frame 3
-- [x] **Day-of-week awareness** — Monday/Friday/weekend quips, once per day
-- [x] **Autonomous conversation** — Friend+ Pip initiates chat with a question (WAVING state, 20 % chance per idle cycle)
-- [x] **Structured logging** — RotatingFileHandler to `~/.pip-companion.log`; session, call timing, bubble, idle events logged
-- [x] **Graceful shutdown** — SIGTERM/SIGINT → journal+save+timer stop; atomic personality.json writes; corrupt-file backup
-- [ ] **Voice output** — TTS via `espeak` / `pyttsx3` / `festival` for spoken responses
-- [ ] **Voice input** — microphone button using `SpeechRecognition` or `whisper`
-- [x] **Triple-click to minimize** — shrinks to a 20×20 dot; triple-click to restore
-- [ ] **Multiple characters** — switch between different pixel-art skins
-- [ ] **Notification hooks** — Pip comments on desktop notifications (calendar events, mail, etc.)
-- [ ] **Screen-aware Pip** — Pip moves out of the way of full-screen windows
-- [x] **Mini-games** — Rock-Paper-Scissors, Trivia Quiz, 20 Questions
-- [x] **Custom quips** — user-editable list of random idle phrases in the Control Panel
-- [ ] **Startup on login** — add a `.desktop` autostart entry
-- [x] **Multiple bubble styles** — speech, thought (dot-chain tail), shout (spiky border)
-- [ ] **Wayland support** — test and fix `wl_surface` layering for Wayland compositors
-- [ ] **Export / import personality** — share `personality.json` between machines
-- [ ] **Streaming responses** — show Claude's reply word-by-word as it arrives
-- [x] **Trivia / 20 Questions** — Claude-powered games from the right-click menu
-- [x] **Word of the day** — obscure word + definition once per day
-- [x] **Daily challenge** — coding/creative prompt once per day
-- [x] **Dream muttering** — surreal sleep-state thought bubbles
-- [x] **Haiku** — Claude-generated 5-7-5 haiku as a random idle event
-- [x] **Screen-time nudge** — 2-hour reminder with re-arm
-- [x] **Relationship levels** — tone adapts as interaction count grows
-- [x] **Sticky notes** — "remember: X" shortcut + Notes tab in Control Panel
-- [x] **Music detector** — playerctl/MPRIS reactions
-- [x] **Weather reactions** — wttr.in once per session
-- [x] **Git commit detector** — clipboard SHA → celebratory reaction
-- [x] **System stats** — CPU/RAM commentary via psutil
-- [x] **Twin Pip** — summon a second companion that interacts with the first
-- [x] **User profiling** — first-run questionnaire, mood check-ins, achievement system, stress detection
-- [x] **Hydration & eye-strain reminders** — timed wellness nudges, configurable via Wellness tab
-- [x] **Breathing exercise** — guided 4-7-8 exercise with timed bubble steps
-- [x] **Focus mode & Focus Zone** — silent focus toggle + configurable sprint timer
-- [x] **Quiet hours** — suppress all proactive bubbles during configured hours
-- [x] **Interest-based facts** — Claude-generated facts about your stated interests
-- [x] **Skill tip / code joke / daily learning** — once-per-day AI-generated content
-- [x] **teach: / bookmark: shortcuts** — teach Pip vocabulary; save links via chat
-- [x] **Weekly recap** — Monday summary of chats, streak, and topics
-- [x] **Session stats** — right-click → today's stats bubble
-- [x] **Git activity reader** — Pip spots recent commits and cheers you on
-- [x] **Animated landing page** — `docs/index.html` for GitHub Pages; animated canvas Pip, features showcase, install section, Buy Me a Coffee button
-
----
-
-## TODO — Optimizations
-
-- [ ] **Dirty-rect repaints** — only repaint the region that actually changed
-- [ ] **Pre-rasterize frames** — cache each animation frame to a `QPixmap` at startup
-- [x] **Adaptive frame rate** — IDLE advances only every 4th tick (~2 fps); active states at full 8 fps
-- [ ] **Background worker pool** — reuse a single `QThread` instead of a new one per request
-- [ ] **Subprocess warm-up** — keep Claude process warm to avoid cold-start latency
-- [ ] **Debounce idle reschedule** — avoid restarting `_idle_timer` on rapid settings changes
-- [x] **Bubble text margins** — QRect-based drawText with AlignVCenter; consistent PADDING_H/V; MAX_WIDTH 300; `default=0` guard against empty-list crash
-- [x] **Worker lifecycle fixes** — stale signals disconnected before new worker; `quit()/wait()` on clear history; `destroyed` signal clears stale panel reference
-- [x] **Minimized-state guards** — `_show_bubble` no-ops while minimized; `_return_timer`/`_dream_timer` stopped; drag skipped while minimized
-- [ ] **Bubble text caching** — cache laid-out lines so `_update_geometry` only re-runs on text change
-- [ ] **Reduce QSettings writes** — batch position saves; currently writes on every mouseRelease
-- [ ] **Lazy-import control panel** — import `control_panel.py` only when first opened
+[Polyform Noncommercial 1.0](LICENSE) — free for personal use, not for commercial products.
