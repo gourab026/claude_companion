@@ -610,6 +610,10 @@ class CompanionWindow(QWidget):
         except Exception:
             log.error("Error writing journal on close", exc_info=True)
         try:
+            self._personality.log_session(self._session_active_start, time.time())
+        except Exception:
+            log.error("Error logging session on close", exc_info=True)
+        try:
             self._personality.save()
         except Exception:
             log.error("Error saving personality on close", exc_info=True)
@@ -878,6 +882,7 @@ class CompanionWindow(QWidget):
         )
         self._worker.response_ready.connect(self._on_response)
         self._worker.error_occurred.connect(self._on_error)
+        self._worker.usage_ready.connect(self._on_usage)
         self._worker.start()
 
         # Improvement 12: start typing indicator after acknowledgement bubble
@@ -944,6 +949,11 @@ class CompanionWindow(QWidget):
         self._show_bubble(response, priority=BUBBLE_HIGH, interactive=True)
         self._return_timer.stop()  # idle return triggered by bubble_closed instead
         QTimer.singleShot(1000, self._check_achievements)
+
+    def _on_usage(self, input_tokens: int, output_tokens: int):
+        self._personality.log_tokens(input_tokens, output_tokens)
+        self._personality.save()
+        log.debug("Token usage — in=%d out=%d", input_tokens, output_tokens)
 
     def _on_error(self, msg: str):
         # Improvement 12: dismiss typing indicator on error too

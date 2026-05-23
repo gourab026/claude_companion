@@ -422,6 +422,53 @@ class Personality:
         if len(log) > 300:
             self._data["mood_log"] = log[-300:]
 
+    # ── Token & session usage ─────────────────────────────────────────────────
+
+    def log_tokens(self, input_tokens: int, output_tokens: int):
+        today = date.today().isoformat()
+        usage = self._data.setdefault("daily_usage", {})
+        day = usage.setdefault(today, {"input_tokens": 0, "output_tokens": 0, "sessions": []})
+        day["input_tokens"] += input_tokens
+        day["output_tokens"] += output_tokens
+        # Keep last 30 days
+        if len(usage) > 30:
+            oldest = sorted(usage.keys())[0]
+            del usage[oldest]
+
+    def log_session(self, start_ts: float, end_ts: float):
+        today = date.today().isoformat()
+        usage = self._data.setdefault("daily_usage", {})
+        day = usage.setdefault(today, {"input_tokens": 0, "output_tokens": 0, "sessions": []})
+        minutes = max(1, int((end_ts - start_ts) / 60))
+        day["sessions"].append({
+            "start": datetime.fromtimestamp(start_ts).strftime("%H:%M"),
+            "end":   datetime.fromtimestamp(end_ts).strftime("%H:%M"),
+            "minutes": minutes,
+        })
+        # Cap session list at 20 per day
+        if len(day["sessions"]) > 20:
+            day["sessions"] = day["sessions"][-20:]
+
+    def get_daily_usage(self, days: int = 7) -> list[dict]:
+        """Return usage for the last `days` days, newest first."""
+        usage = self._data.get("daily_usage", {})
+        cutoff = (date.today() - timedelta(days=days - 1)).isoformat()
+        result = []
+        for d in sorted(usage.keys(), reverse=True):
+            if d < cutoff:
+                break
+            entry = usage[d]
+            total_min = sum(s.get("minutes", 0) for s in entry.get("sessions", []))
+            result.append({
+                "date":          d,
+                "input_tokens":  entry.get("input_tokens", 0),
+                "output_tokens": entry.get("output_tokens", 0),
+                "total_tokens":  entry.get("input_tokens", 0) + entry.get("output_tokens", 0),
+                "session_count": len(entry.get("sessions", [])),
+                "total_minutes": total_min,
+            })
+        return result
+
     # ── User profile ──────────────────────────────────────────────────────────
 
     def get_profile(self) -> dict:

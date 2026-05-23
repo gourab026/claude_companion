@@ -88,6 +88,7 @@ log = logging.getLogger("pip.claude")
 class ClaudeWorker(QThread):
     response_ready = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
+    usage_ready    = pyqtSignal(int, int)   # input_tokens, output_tokens
 
     def __init__(
         self,
@@ -112,7 +113,7 @@ class ClaudeWorker(QThread):
 
         cmd = [
             claude_bin, "-p",
-            "--output-format", "text",
+            "--output-format", "json",
             "--model", self._model,
             "--no-session-persistence",   # correct for scripted / automated use
             "--system-prompt", self._system_prompt,
@@ -162,12 +163,25 @@ class ClaudeWorker(QThread):
                       result.stderr[:300])
 
             if result.returncode == 0:
-                out = result.stdout.strip()
+                raw = result.stdout.strip()
+                text = raw
+                input_tok = output_tok = 0
+                try:
+                    import json as _json
+                    data = _json.loads(raw)
+                    text = data.get("result", raw).strip()
+                    usage = data.get("usage", {})
+                    input_tok  = usage.get("input_tokens", 0)
+                    output_tok = usage.get("output_tokens", 0)
+                except Exception:
+                    pass  # fall back to raw text if JSON parse fails
                 log.info(
-                    "Claude response received (elapsed=%dms, chars=%d)",
-                    elapsed_ms, len(out),
+                    "Claude response received (elapsed=%dms, chars=%d, in=%d, out=%d)",
+                    elapsed_ms, len(text), input_tok, output_tok,
                 )
-                self.response_ready.emit(out or "…")
+                if input_tok or output_tok:
+                    self.usage_ready.emit(input_tok, output_tok)
+                self.response_ready.emit(text or "…")
             else:
                 err = (result.stderr.strip()
                        or f"claude exited with code {result.returncode}")

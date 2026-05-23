@@ -576,6 +576,17 @@ class ControlPanel(QWidget):
         j_lo.addWidget(self._home_journal_lbl)
         lo.addWidget(journal_box)
 
+        # ── Token & session usage ─────────────────────────────────────────────
+        usage_box = QGroupBox("Usage (last 7 days)")
+        u_lo = QVBoxLayout(usage_box)
+        self._usage_table = QLabel()
+        self._usage_table.setFont(QFont("Monospace", 10))
+        self._usage_table.setStyleSheet("color: #8878a0; line-height: 160%;")
+        self._usage_table.setWordWrap(True)
+        self._usage_table.setTextFormat(Qt.TextFormat.RichText)
+        u_lo.addWidget(self._usage_table)
+        lo.addWidget(usage_box)
+
         # ── Word / challenge of day ───────────────────────────────────────────
         daily_box = QGroupBox("Today")
         d_lo = QVBoxLayout(daily_box)
@@ -630,6 +641,41 @@ class ControlPanel(QWidget):
         if challenge:
             parts.append(f"Challenge: {challenge}")
         self._home_word_lbl.setText("\n".join(parts) if parts else "—")
+
+        # Token & session usage table
+        rows = self._p.get_daily_usage(7)
+        if rows:
+            def _tok(n):
+                return f"{n:,}" if n < 1_000_000 else f"{n/1_000_000:.1f}M"
+            def _min(m):
+                return f"{m}m" if m < 60 else f"{m//60}h{m%60:02d}m"
+            header = (
+                "<table width='100%' cellspacing='4' style='color:#8878a0;font-size:11px'>"
+                "<tr>"
+                "<th align='left' style='color:#5a4f70'>Date</th>"
+                "<th align='right' style='color:#5a4f70'>In</th>"
+                "<th align='right' style='color:#5a4f70'>Out</th>"
+                "<th align='right' style='color:#5a4f70'>Total</th>"
+                "<th align='right' style='color:#5a4f70'>Time</th>"
+                "<th align='right' style='color:#5a4f70'>Sessions</th>"
+                "</tr>"
+            )
+            trs = []
+            for r in rows:
+                accent = "#a892ff" if r["date"] == str(__import__("datetime").date.today()) else "#8878a0"
+                trs.append(
+                    f"<tr style='color:{accent}'>"
+                    f"<td>{r['date'][5:]}</td>"
+                    f"<td align='right'>{_tok(r['input_tokens'])}</td>"
+                    f"<td align='right'>{_tok(r['output_tokens'])}</td>"
+                    f"<td align='right'><b>{_tok(r['total_tokens'])}</b></td>"
+                    f"<td align='right'>{_min(r['total_minutes'])}</td>"
+                    f"<td align='right'>{r['session_count']}</td>"
+                    f"</tr>"
+                )
+            self._usage_table.setText(header + "".join(trs) + "</table>")
+        else:
+            self._usage_table.setText("<i style='color:#5a4f70'>No usage data yet — start chatting!</i>")
 
     # ═══════════════════════════════════════════ Personality tab ═════════════
 
