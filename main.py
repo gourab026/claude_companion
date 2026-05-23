@@ -406,6 +406,7 @@ class CompanionWindow(QWidget):
         self._bubble = BubbleWindow()
         self._bubble_queue: list[tuple[int, str, str, bool]] = []   # (priority, text, style, interactive)
         self._bubble.bubble_closed.connect(self._drain_bubble_queue)
+        self._bubble.bubble_closed.connect(self._on_bubble_dismissed)
         # improvement 1: double-click on bubble opens chat pre-filled
         self._bubble.double_clicked.connect(self._bubble_double_clicked)
         # improvement 8: wire up reaction callback
@@ -940,9 +941,8 @@ class CompanionWindow(QWidget):
         final_state = resp_mood if resp_mood else State.TALKING
         self._char.set_state(final_state)
         self._personality.log_mood(final_state.name)
-        self._show_bubble(response, priority=BUBBLE_HIGH)
-        bubble_ms = max(6000, len(response.split()) * 300)
-        self._return_timer.start(bubble_ms + 500)
+        self._show_bubble(response, priority=BUBBLE_HIGH, interactive=True)
+        self._return_timer.stop()  # idle return triggered by bubble_closed instead
         QTimer.singleShot(1000, self._check_achievements)
 
     def _on_error(self, msg: str):
@@ -954,6 +954,11 @@ class CompanionWindow(QWidget):
         self._return_timer.start(5000)
 
     # ── Improvement 1: double-tap bubble to reply ────────────────────────────
+
+    def _on_bubble_dismissed(self):
+        """Called whenever a bubble is closed — return to idle if nothing is queued."""
+        if not self._bubble_queue and not (self._worker and self._worker.isRunning()):
+            QTimer.singleShot(800, self._go_idle)
 
     def _bubble_double_clicked(self):
         """Open chat pre-filled with context from the last bubble exchange."""
@@ -2333,32 +2338,41 @@ class CompanionWindow(QWidget):
     # ── Bubble ────────────────────────────────────────────────────────────────
 
     def _show_bubble(self, text: str, style: str = SPEECH,
-                     priority: int = BUBBLE_NORMAL):
+                     priority: int = BUBBLE_NORMAL, interactive: bool = False):
         if self._minimized:
             return
         if not self._bubble.isVisible():
-            self._show_bubble_now(text, style)
+            self._show_bubble_now(text, style, interactive=interactive)
             return
         if priority == BUBBLE_LOW:
             return  # ambient chatter — don't interrupt or queue
         # Queue: insert in priority order (highest first), cap at 3 items
-        self._bubble_queue.append((priority, text, style))
+        self._bubble_queue.append((priority, text, style, interactive))
         self._bubble_queue.sort(key=lambda x: x[0], reverse=True)
         if len(self._bubble_queue) > 3:
             self._bubble_queue.pop()  # drop the lowest-priority tail
 
-    def _show_bubble_now(self, text: str, style: str):
+    def _show_bubble_now(self, text: str, style: str, interactive: bool = False):
         words = len(text.split())
         _log_bub.info("Bubble shown (style=%s, words=%d)", style, words)
         anchor = self.mapToGlobal(QPoint(self.width() // 2, 0))
         duration_ms = max(6000, words * 300)
-        self._bubble.show_text(text, anchor, duration_ms, style=style)
+        self._bubble.show_text(text, anchor, duration_ms, style=style, interactive=interactive)
 
     def _drain_bubble_queue(self):
         if self._minimized or not self._bubble_queue:
             return
-        _, text, style = self._bubble_queue.pop(0)
-        self._show_bubble_now(text, style)
+        entry = self._bubble_queue.pop(0)
+        # Support old 3-tuple entries and new 4-tuple entries
+        if len(entry) == 4:
+            _, text, style, interactive = entry
+        else:
+            _, text, style = entry
+            interactive = False
+        self._show_bubble_now(text, style, interactive=interactive)
+        # For interactive bubbles in the queue, idle return happens on close
+        if interactive:
+            self._return_timer.stop()
 
     # ── System tray ───────────────────────────────────────────────────────────
 
