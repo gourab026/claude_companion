@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import time
+import webbrowser
 from datetime import datetime as _dt
 from pathlib import Path
 
@@ -1266,30 +1267,17 @@ class ControlPanel(QWidget):
         gcal_lo  = QVBoxLayout(gcal_box)
 
         gcal_info = QLabel(
-            "Connect your Google Calendar so Pip can read, add and update events.\n\n"
-            "Setup: create a Google Cloud project, enable the Calendar API, download\n"
-            "OAuth credentials (Desktop app type) and save the file below."
+            "Connect your Google Calendar so Pip can read, add and update events.\n"
+            "Clicking Connect will open your browser for Google login."
         )
         gcal_info.setWordWrap(True)
         gcal_info.setStyleSheet("color: #9888b8; font-size: 11px;")
         gcal_lo.addWidget(gcal_info)
 
-        creds_row = QHBoxLayout()
-        self._gcal_creds_lbl = QLabel("Credentials file: (not set)")
-        self._gcal_creds_lbl.setStyleSheet("color: #c8b8e8; font-size: 11px;")
-        self._gcal_creds_lbl.setWordWrap(True)
-        self._gcal_browse_btn = QPushButton("Browse…")
-        self._gcal_browse_btn.setFixedWidth(80)
-        self._gcal_browse_btn.clicked.connect(self._gcal_browse_creds)
-        creds_row.addWidget(self._gcal_creds_lbl, 1)
-        creds_row.addWidget(self._gcal_browse_btn)
-        gcal_lo.addLayout(creds_row)
-
         status_row = QHBoxLayout()
         self._gcal_status_lbl = QLabel("Status: Not connected")
         self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px; font-weight: bold;")
-        self._gcal_connect_btn = QPushButton("Connect")
-        self._gcal_connect_btn.setFixedWidth(100)
+        self._gcal_connect_btn = QPushButton("Connect Google Calendar")
         self._gcal_connect_btn.clicked.connect(self._gcal_toggle_connection)
         status_row.addWidget(self._gcal_status_lbl, 1)
         status_row.addWidget(self._gcal_connect_btn)
@@ -1314,19 +1302,10 @@ class ControlPanel(QWidget):
     def _gcal_refresh_ui(self):
         """Update status label and button text to match current connection state."""
         if self._gcal is None:
-            self._gcal_status_lbl.setText("Status: library not installed")
-            self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px;")
+            self._gcal_status_lbl.setText("Status: google libraries not installed (pip install google-api-python-client google-auth-oauthlib)")
+            self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 10px;")
             self._gcal_connect_btn.setEnabled(False)
-            self._gcal_browse_btn.setEnabled(False)
             return
-
-        from gcal_client import CREDS_FILE, TOKEN_FILE
-        if CREDS_FILE.exists():
-            self._gcal_creds_lbl.setText(f"Credentials: {CREDS_FILE.name} ✓")
-            self._gcal_creds_lbl.setStyleSheet("color: #88ff88; font-size: 11px;")
-        else:
-            self._gcal_creds_lbl.setText("Credentials file: (not set)")
-            self._gcal_creds_lbl.setStyleSheet("color: #9888b8; font-size: 11px;")
 
         if self._gcal.is_connected():
             self._gcal_status_lbl.setText("Status: Connected ✓")
@@ -1335,34 +1314,108 @@ class ControlPanel(QWidget):
         else:
             self._gcal_status_lbl.setText("Status: Not connected")
             self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px; font-weight: bold;")
-            self._gcal_connect_btn.setText("Connect")
-
-    def _gcal_browse_creds(self):
-        from gcal_client import CREDS_FILE, CONFIG_DIR
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Google credentials.json",
-            str(CONFIG_DIR), "JSON files (*.json)"
-        )
-        if path:
-            import shutil, os
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            dest = CREDS_FILE
-            if os.path.abspath(path) != str(dest):
-                shutil.copy2(path, dest)
-            self._gcal_refresh_ui()
+            self._gcal_connect_btn.setText("Connect Google Calendar")
 
     def _gcal_toggle_connection(self):
         if self._gcal is None:
             return
         if self._gcal.is_connected():
-            self._gcal.disconnect()
-            self._gcal_refresh_ui()
-            self.calendar_status_changed.emit(False)
+            reply = QMessageBox.question(
+                self, "Disconnect Google Calendar",
+                "Disconnect your Google Calendar?\nPip will no longer be able to read or manage your events.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._gcal.disconnect()
+                self._gcal_refresh_ui()
+                self.calendar_status_changed.emit(False)
         else:
-            self._gcal_connect_btn.setEnabled(False)
-            self._gcal_status_lbl.setText("Status: Connecting… (check your browser)")
-            self._gcal_status_lbl.setStyleSheet("color: #ffdd88; font-size: 11px; font-weight: bold;")
-            self._gcal.connect(on_done=self._gcal_on_connect_done)
+            self._gcal_start_connect()
+
+    def _gcal_start_connect(self):
+        """Start the OAuth flow; show a setup dialog if credentials.json is missing."""
+        from gcal_client import CREDS_FILE
+        if not CREDS_FILE.exists():
+            self._gcal_show_setup_dialog()
+            return
+        self._gcal_run_oauth()
+
+    def _gcal_show_setup_dialog(self):
+        """Guide the user through one-time Google Cloud credentials setup."""
+        from gcal_client import CREDS_FILE, CONFIG_DIR
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Google Calendar Setup")
+        dlg.setMinimumWidth(480)
+        lo = QVBoxLayout(dlg)
+
+        title = QLabel("<b>One-time setup — takes about 2 minutes</b>")
+        title.setTextFormat(Qt.TextFormat.RichText)
+        lo.addWidget(title)
+
+        steps = QLabel(
+            "Pip needs a Google OAuth credentials file to connect.\n\n"
+            "Step 1 — Click the button below to open Google Cloud Console.\n"
+            "Step 2 — Create a project (or pick an existing one).\n"
+            "Step 3 — Go to APIs & Services → Library → enable \"Google Calendar API\".\n"
+            "Step 4 — Go to APIs & Services → Credentials → Create Credentials\n"
+            "         → OAuth client ID → Application type: Desktop app → Create.\n"
+            "Step 5 — Click the download icon (↓) next to your new credential.\n"
+            "Step 6 — Click \"Browse\" below to select the downloaded file.\n"
+            "Step 7 — Click \"Connect\" — your browser will open for Google login."
+        )
+        steps.setWordWrap(True)
+        steps.setStyleSheet("font-size: 11px; color: #c0b0d8;")
+        lo.addWidget(steps)
+
+        open_btn = QPushButton("Open Google Cloud Console")
+        open_btn.clicked.connect(lambda: webbrowser.open(
+            "https://console.cloud.google.com/apis/credentials"
+        ))
+        lo.addWidget(open_btn)
+
+        browse_row = QHBoxLayout()
+        self._gcal_creds_path_lbl = QLabel(f"File: (not selected)")
+        self._gcal_creds_path_lbl.setStyleSheet("color: #9888b8; font-size: 11px;")
+        browse_btn = QPushButton("Browse…")
+        browse_btn.setFixedWidth(80)
+        browse_btn.clicked.connect(lambda: self._gcal_browse_in_dialog(dlg, connect_btn))
+        browse_row.addWidget(self._gcal_creds_path_lbl, 1)
+        browse_row.addWidget(browse_btn)
+        lo.addLayout(browse_row)
+
+        btns = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dlg.reject)
+        connect_btn = QPushButton("Connect")
+        connect_btn.setEnabled(False)
+        connect_btn.clicked.connect(lambda: (dlg.accept(), self._gcal_run_oauth()))
+        btns.addWidget(cancel_btn)
+        btns.addWidget(connect_btn)
+        lo.addLayout(btns)
+
+        dlg.exec()
+
+    def _gcal_browse_in_dialog(self, dlg: "QDialog", connect_btn: "QPushButton"):
+        from gcal_client import CREDS_FILE, CONFIG_DIR
+        import shutil, os
+        path, _ = QFileDialog.getOpenFileName(
+            dlg, "Select downloaded credentials JSON",
+            os.path.expanduser("~/Downloads"), "JSON files (*.json)"
+        )
+        if path:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            if os.path.abspath(path) != str(CREDS_FILE):
+                shutil.copy2(path, CREDS_FILE)
+            self._gcal_creds_path_lbl.setText(f"File: {os.path.basename(path)} ✓")
+            self._gcal_creds_path_lbl.setStyleSheet("color: #88ff88; font-size: 11px;")
+            connect_btn.setEnabled(True)
+
+    def _gcal_run_oauth(self):
+        """Start the OAuth flow — opens browser for Google login."""
+        self._gcal_connect_btn.setEnabled(False)
+        self._gcal_status_lbl.setText("Status: Opening browser for Google login…")
+        self._gcal_status_lbl.setStyleSheet("color: #ffdd88; font-size: 11px; font-weight: bold;")
+        self._gcal.connect(on_done=self._gcal_on_connect_done)
 
     def _gcal_on_connect_done(self, success: bool, message: str):
         # Called from background thread — emit signal to cross to main thread
