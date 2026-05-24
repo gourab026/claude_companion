@@ -13,6 +13,8 @@ Powered by Claude Code — **no API key needed**.
 ## What she does
 
 - **AI chat** — left-click to talk; uses your local `claude` CLI session
+- **Voice input** — click the mic button and speak; Pip transcribes and replies
+- **Google Calendar** — connect once and say *"add dentist Friday at 3pm"* or *"what's on my calendar today?"*
 - **Relationship system** — grows from *New Friend* → *Best Friend* over 500+ interactions; her tone and humour actually change
 - **Music awareness** — dances when a new track starts via `playerctl`; fetches artist facts
 - **Games** — Trivia Quiz, 20 Questions, Rock-Paper-Scissors from the right-click menu
@@ -30,15 +32,16 @@ Powered by Claude Code — **no API key needed**.
 git clone https://github.com/gourab026/claude_companion.git
 cd claude_companion
 
-# 1. Install dependencies
-pip install PyQt6 pynput
-pip install psutil        # optional — system stats reactions
-sudo apt install xdotool playerctl  # window watcher + music detection
+# 1. System dependencies
+sudo apt install portaudio19-dev xdotool playerctl  # portaudio required for voice input
 
-# 2. Make sure Claude Code is installed and authenticated
-claude -p "hi"            # should return a response
+# 2. Python dependencies
+pip install -r requirements.txt
 
-# 3. Run
+# 3. Make sure Claude Code is installed and authenticated
+claude -p "hi"   # should return a response
+
+# 4. Run
 python main.py
 ```
 
@@ -57,6 +60,38 @@ python main.py
 | Drag | Move anywhere on screen |
 | `remember: X` in chat | Save a sticky note |
 | `teach: word = meaning` | Teach Pip a new word |
+| `play [song]` in chat | Open YouTube search |
+| `remind me to X tomorrow at 3pm` | Add to Google Calendar |
+| `what's on my calendar today?` | Read calendar events |
+
+---
+
+## Voice input
+
+Click the 🎤 button in the chat window to speak instead of type.
+
+```bash
+# Required
+pip install SpeechRecognition PyAudio
+
+# Optional — offline transcription (no internet needed)
+pip install openai-whisper
+```
+
+Switch between Google Speech (online) and Whisper (offline) in **Settings → Voice Input**.
+
+---
+
+## Google Calendar
+
+1. Open the right-click menu → **Control Panel → Settings**
+2. Scroll to **Google Calendar** → click **Connect**
+3. Follow the one-time setup (Google Cloud credentials + browser login)
+
+Once connected, natural language works:
+- *"add team meeting Monday at 2pm"*
+- *"remind me to call John tomorrow at 10am"*
+- *"what do I have on Friday?"*
 
 ---
 
@@ -71,9 +106,23 @@ python main.py
 
 ---
 
+## Control Panel
+
+Right-click → **Control Panel** opens a 5-tab dashboard:
+
+| Tab | Contents |
+|---|---|
+| 🏠 Home | Live stats, quick actions, mood chart, usage |
+| 👤 Character | Personality traits, your profile, cosmetics |
+| 📝 Memory | Notes, bookmarks, journal, mood history |
+| ⚙️ Settings | AI model, voice, calendar, wellness, tools, MCP |
+| 📋 Log | Live log viewer with level filtering |
+
+---
+
 ## Stack
 
-Python 3.9+ · PyQt6 · Claude Code CLI · `playerctl` · `xdotool` · `psutil`
+Python 3.9+ · PyQt6 · Claude Code CLI · `playerctl` · `xdotool` · `SpeechRecognition` · `PyAudio` · Google Calendar API
 
 ---
 
