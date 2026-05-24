@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox, QRadioButton, QButtonGroup,
     QScrollArea, QSplitter, QFileDialog, QGridLayout, QFrame,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, pyqtSlot, QSize, QTimer
 
 from personality import Personality, DEFAULTS
 
@@ -182,15 +182,18 @@ def _tab_icon_cosmetics(size=18):
     return _cp_make_icon(draw, "#c888ff", size)
 
 class ControlPanel(QWidget):
-    settings_changed    = pyqtSignal()
-    breathing_requested = pyqtSignal()
+    settings_changed        = pyqtSignal()
+    breathing_requested     = pyqtSignal()
+    calendar_status_changed = pyqtSignal(bool)    # True = connected, False = disconnected
+    _gcal_done              = pyqtSignal(bool, str)  # internal: thread → UI
 
     def __init__(self, personality: Personality, settings: QSettings,
-                 mcp_config_path: str, parent=None):
+                 mcp_config_path: str, gcal=None, parent=None):
         super().__init__(parent)
-        self._p   = personality
-        self._s   = settings
-        self._mcp = mcp_config_path
+        self._p    = personality
+        self._s    = settings
+        self._mcp  = mcp_config_path
+        self._gcal = gcal   # GCalClient instance (may be None if lib not installed)
         self.setWindowTitle("Pip — Control Panel")
         self.setWindowFlags(Qt.WindowType.Window)
         self.resize(580, 640)
@@ -432,6 +435,9 @@ class ControlPanel(QWidget):
             sa.setWidget(w)
             return sa
 
+        # Internal signal: GCal background thread → main thread
+        self._gcal_done.connect(self._gcal_on_connect_done_ui)
+
         self._tabs = QTabWidget()
         self._tabs.setIconSize(QSize(18, 18))
         self._tabs.addTab(self._home_tab(),                    _tab_icon_about(),       "Home")
@@ -449,6 +455,8 @@ class ControlPanel(QWidget):
         root.addWidget(self._tabs)
 
         # Search keyword → tab index map (populated after tabs are built)
+        # Tabs: 0=Home, 1=Personality, 2=Journal&Mood, 3=Notes&Bookmarks,
+        #       4=Tools, 5=Cosmetics, 6=Settings, 7=Log
         self._search_tab_map = {
             # Home
             "home": 0, "overview": 0, "mood": 0, "streak": 0, "stats": 0,
@@ -465,11 +473,14 @@ class ControlPanel(QWidget):
             # Tools
             "tools": 4, "mcp": 4, "web search": 4, "bash": 4, "deep watch": 4,
             "wander": 4, "screen watcher": 4, "server": 4,
+            # Cosmetics
+            "cosmetics": 5, "hat": 5, "items": 5, "appearance": 5,
             # Settings
-            "settings": 5, "model": 5, "idle": 5, "position": 5,
-            "log file": 5, "sound": 5, "interval": 5,
+            "settings": 6, "model": 6, "idle": 6, "position": 6,
+            "log file": 6, "sound": 6, "interval": 6,
+            "calendar": 6, "google calendar": 6, "gcal": 6,
             # Log
-            "log": 6, "error": 6, "debug": 6, "warning": 6,
+            "log": 7, "error": 7, "debug": 7, "warning": 7,
         }
 
     # ═══════════════════════════════════════════ Search handler ══════════════
@@ -1250,6 +1261,43 @@ class ControlPanel(QWidget):
         slo.addWidget(self._bubble_sound_cb)
         lo.addWidget(sound_box)
 
+        # ── Google Calendar ───────────────────────────────────────────────────
+        gcal_box = QGroupBox("Google Calendar")
+        gcal_lo  = QVBoxLayout(gcal_box)
+
+        gcal_info = QLabel(
+            "Connect your Google Calendar so Pip can read, add and update events.\n\n"
+            "Setup: create a Google Cloud project, enable the Calendar API, download\n"
+            "OAuth credentials (Desktop app type) and save the file below."
+        )
+        gcal_info.setWordWrap(True)
+        gcal_info.setStyleSheet("color: #9888b8; font-size: 11px;")
+        gcal_lo.addWidget(gcal_info)
+
+        creds_row = QHBoxLayout()
+        self._gcal_creds_lbl = QLabel("Credentials file: (not set)")
+        self._gcal_creds_lbl.setStyleSheet("color: #c8b8e8; font-size: 11px;")
+        self._gcal_creds_lbl.setWordWrap(True)
+        self._gcal_browse_btn = QPushButton("Browse…")
+        self._gcal_browse_btn.setFixedWidth(80)
+        self._gcal_browse_btn.clicked.connect(self._gcal_browse_creds)
+        creds_row.addWidget(self._gcal_creds_lbl, 1)
+        creds_row.addWidget(self._gcal_browse_btn)
+        gcal_lo.addLayout(creds_row)
+
+        status_row = QHBoxLayout()
+        self._gcal_status_lbl = QLabel("Status: Not connected")
+        self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px; font-weight: bold;")
+        self._gcal_connect_btn = QPushButton("Connect")
+        self._gcal_connect_btn.setFixedWidth(100)
+        self._gcal_connect_btn.clicked.connect(self._gcal_toggle_connection)
+        status_row.addWidget(self._gcal_status_lbl, 1)
+        status_row.addWidget(self._gcal_connect_btn)
+        gcal_lo.addLayout(status_row)
+
+        lo.addWidget(gcal_box)
+        self._gcal_refresh_ui()   # set initial state
+
         save_btn = QPushButton("Save Settings")
         save_btn.clicked.connect(self._save_settings)
         lo.addWidget(save_btn)
@@ -1260,6 +1308,75 @@ class ControlPanel(QWidget):
 
         lo.addStretch()
         return w
+
+    # ── Google Calendar helpers ───────────────────────────────────────────────
+
+    def _gcal_refresh_ui(self):
+        """Update status label and button text to match current connection state."""
+        if self._gcal is None:
+            self._gcal_status_lbl.setText("Status: library not installed")
+            self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px;")
+            self._gcal_connect_btn.setEnabled(False)
+            self._gcal_browse_btn.setEnabled(False)
+            return
+
+        from gcal_client import CREDS_FILE, TOKEN_FILE
+        if CREDS_FILE.exists():
+            self._gcal_creds_lbl.setText(f"Credentials: {CREDS_FILE.name} ✓")
+            self._gcal_creds_lbl.setStyleSheet("color: #88ff88; font-size: 11px;")
+        else:
+            self._gcal_creds_lbl.setText("Credentials file: (not set)")
+            self._gcal_creds_lbl.setStyleSheet("color: #9888b8; font-size: 11px;")
+
+        if self._gcal.is_connected():
+            self._gcal_status_lbl.setText("Status: Connected ✓")
+            self._gcal_status_lbl.setStyleSheet("color: #88ff88; font-size: 11px; font-weight: bold;")
+            self._gcal_connect_btn.setText("Disconnect")
+        else:
+            self._gcal_status_lbl.setText("Status: Not connected")
+            self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px; font-weight: bold;")
+            self._gcal_connect_btn.setText("Connect")
+
+    def _gcal_browse_creds(self):
+        from gcal_client import CREDS_FILE, CONFIG_DIR
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Google credentials.json",
+            str(CONFIG_DIR), "JSON files (*.json)"
+        )
+        if path:
+            import shutil, os
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            dest = CREDS_FILE
+            if os.path.abspath(path) != str(dest):
+                shutil.copy2(path, dest)
+            self._gcal_refresh_ui()
+
+    def _gcal_toggle_connection(self):
+        if self._gcal is None:
+            return
+        if self._gcal.is_connected():
+            self._gcal.disconnect()
+            self._gcal_refresh_ui()
+            self.calendar_status_changed.emit(False)
+        else:
+            self._gcal_connect_btn.setEnabled(False)
+            self._gcal_status_lbl.setText("Status: Connecting… (check your browser)")
+            self._gcal_status_lbl.setStyleSheet("color: #ffdd88; font-size: 11px; font-weight: bold;")
+            self._gcal.connect(on_done=self._gcal_on_connect_done)
+
+    def _gcal_on_connect_done(self, success: bool, message: str):
+        # Called from background thread — emit signal to cross to main thread
+        self._gcal_done.emit(success, message)
+
+    def _gcal_on_connect_done_ui(self, success: bool, message: str):
+        self._gcal_connect_btn.setEnabled(True)
+        if success:
+            self._gcal_refresh_ui()
+            self.calendar_status_changed.emit(True)
+        else:
+            self._gcal_status_lbl.setText("Status: Connection failed")
+            self._gcal_status_lbl.setStyleSheet("color: #ff8888; font-size: 11px; font-weight: bold;")
+            QMessageBox.warning(self, "Google Calendar", f"Could not connect:\n\n{message}")
 
     # ═══════════════════════════════════════════ About tab ═══════════════════
 

@@ -24,7 +24,7 @@ from datetime import datetime, date
 from urllib.parse import quote_plus
 
 from PyQt6.QtWidgets import QApplication, QWidget, QInputDialog, QMenu, QLineEdit, QMessageBox, QSystemTrayIcon
-from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QPoint, QTimer, QSettings, QPropertyAnimation, QEasingCurve, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QPainter, QIcon, QPixmap, QColor, QPen, QBrush
 
 
@@ -294,6 +294,12 @@ from bubble import BubbleWindow, SPEECH, THOUGHT, SHOUT
 from chat_input import ChatInputWidget
 from control_panel import ControlPanel
 from asset_manager import AssetManager
+try:
+    from gcal_client import GCalClient
+    _GCAL_AVAILABLE = True
+except ImportError:
+    GCalClient = None
+    _GCAL_AVAILABLE = False
 
 # Bubble priority levels
 BUBBLE_LOW    = 0   # idle chatter — silently dropped if a bubble is already visible
@@ -352,6 +358,8 @@ def _detect_response_mood(text: str) -> State | None:
 
 
 class CompanionWindow(QWidget):
+    _cal_result_ready = pyqtSignal(str)   # emitted from calendar background threads
+
     def __init__(self, is_second: bool = False):
         super().__init__()
 
@@ -369,6 +377,7 @@ class CompanionWindow(QWidget):
         self._personality = Personality()
         self._settings    = QSettings("companion", "pip")
         self._char        = CharacterRenderer()
+        self._gcal        = GCalClient() if _GCAL_AVAILABLE else None
         self._worker: ClaudeWorker | None          = None
         self._haiku_worker: ClaudeWorker | None    = None
         self._trivia_worker: ClaudeWorker | None   = None
@@ -411,6 +420,8 @@ class CompanionWindow(QWidget):
         self._bubble.double_clicked.connect(self._bubble_double_clicked)
         # improvement 8: wire up reaction callback
         self._bubble.on_reaction = self._on_bubble_reaction
+        # calendar thread → main thread bridge
+        self._cal_result_ready.connect(self._show_calendar_result)
 
         # improvement 12: typing indicator bubble
         self._typing_indicator: BubbleWindow | None = None
@@ -764,6 +775,145 @@ class CompanionWindow(QWidget):
         busy = bool(self._worker and self._worker.isRunning())
         self._chat_input.activate(anchor, prefill=prefill, busy=busy)
 
+    # ── Google Calendar ───────────────────────────────────────────────────────
+
+    # Patterns that read calendar data
+    _CAL_READ_PATTERNS = re.compile(
+        r"(?:what(?:'s| is)(?: on)? my (?:calendar|schedule|agenda|events?)|"
+        r"show(?: my)? (?:calendar|schedule|agenda|events?)|"
+        r"(?:do i have|what do i have)(?: on)?(?:\s+(?:today|tomorrow|this week))?|"
+        r"(?:my|the) (?:next|upcoming) (?:meeting|event|appointment)|"
+        r"(?:what'?s? )?(?:today|tomorrow|this week)(?:'s)? (?:events?|schedule|agenda)|"
+        r"am i(?: free| busy)(?: today| tomorrow)?)",
+        re.IGNORECASE,
+    )
+
+    # Patterns that create a calendar event: "add event: title | date time | end time"
+    _CAL_ADD_PATTERNS = re.compile(
+        r"^(?:add (?:to )?(?:calendar|event|meeting)|schedule|create (?:an? )?event):\s*(.+)$",
+        re.IGNORECASE,
+    )
+
+    def _try_calendar(self, text: str) -> bool:
+        """
+        Return True if the text is a calendar command.
+        Handles read (show events) and write (add event) commands.
+        Format for adding: "add event: Title | 2026-05-25 14:00 | 2026-05-25 15:00"
+        """
+        if self._gcal is None:
+            return False
+
+        stripped = text.strip()
+
+        # ── Add event ─────────────────────────────────────────────────────────
+        m_add = self._CAL_ADD_PATTERNS.match(stripped)
+        if m_add:
+            if not self._gcal.is_connected():
+                self._show_bubble(
+                    "Google Calendar isn't connected yet.\n"
+                    "Go to Settings → Google Calendar to connect.",
+                    style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
+                )
+                return True
+            self._do_calendar_add(m_add.group(1).strip())
+            return True
+
+        # ── Read events ───────────────────────────────────────────────────────
+        if self._CAL_READ_PATTERNS.search(stripped):
+            if not self._gcal.is_connected():
+                self._show_bubble(
+                    "Google Calendar isn't connected yet.\n"
+                    "Go to Settings → Google Calendar to connect.",
+                    style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
+                )
+                return True
+            self._do_calendar_read(stripped)
+            return True
+
+        return False
+
+    def _do_calendar_read(self, user_text: str):
+        """Fetch and display upcoming events in a background thread."""
+        self._char.set_state(State.THINKING)
+
+        days = 1
+        lower = user_text.lower()
+        if "week" in lower:
+            days = 7
+        elif "tomorrow" in lower:
+            days = 2
+
+        label = "Today" if days == 1 else ("Tomorrow" if days == 2 else "This week")
+
+        def _fetch():
+            events = self._gcal.get_events(days=days)
+            from gcal_client import GCalClient as _GCC
+            summary = _GCC.format_events_short(events, label=label)
+            self._cal_result_ready.emit(summary)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _do_calendar_add(self, spec: str):
+        """
+        Parse and create a calendar event.
+        spec format: "Title | YYYY-MM-DD HH:MM | YYYY-MM-DD HH:MM"
+        End time is optional (defaults to start + 1 hour).
+        """
+        parts = [p.strip() for p in spec.split("|")]
+        if len(parts) < 2:
+            self._show_bubble(
+                "To add an event, use:\nadd event: Title | YYYY-MM-DD HH:MM | YYYY-MM-DD HH:MM",
+                style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
+            )
+            return
+
+        title = parts[0]
+        try:
+            from datetime import timezone as _tz, timedelta as _td
+            local_tz = datetime.now(_tz.utc).astimezone().tzinfo
+            start_dt = datetime.strptime(parts[1], "%Y-%m-%d %H:%M").replace(tzinfo=local_tz)
+            end_dt = (datetime.strptime(parts[2], "%Y-%m-%d %H:%M").replace(tzinfo=local_tz)
+                      if len(parts) >= 3 else start_dt + _td(hours=1))
+            start_iso = start_dt.isoformat()
+            end_iso   = end_dt.isoformat()
+        except ValueError:
+            self._show_bubble(
+                "Couldn't parse the date/time.\nUse format: YYYY-MM-DD HH:MM",
+                style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
+            )
+            return
+
+        self._char.set_state(State.THINKING)
+        start_label = parts[1]
+
+        def _create():
+            event = self._gcal.create_event(title, start_iso, end_iso)
+            msg = (f"Added to calendar!\n\"{title}\"\n{start_label}"
+                   if event else "Couldn't create the event. Check the log for details.")
+            self._cal_result_ready.emit(msg)
+
+        threading.Thread(target=_create, daemon=True).start()
+
+    @pyqtSlot(str)
+    def _show_calendar_result(self, text: str):
+        self._char.set_state(State.HAPPY)
+        self._show_bubble(text, style=THOUGHT, priority=BUBBLE_HIGH, interactive=True)
+
+    def _on_calendar_status_changed(self, connected: bool):
+        if connected:
+            self._show_bubble(
+                "Google Calendar connected! Try:\n"
+                "\"What's on my calendar today?\"",
+                style=SPEECH, priority=BUBBLE_HIGH,
+            )
+            self._return_timer.start(6000)
+        else:
+            self._show_bubble(
+                "Google Calendar disconnected.",
+                style=THOUGHT, priority=BUBBLE_HIGH,
+            )
+            self._return_timer.start(3000)
+
     # ── YouTube ───────────────────────────────────────────────────────────────
 
     _YT_PATTERNS = re.compile(
@@ -802,6 +952,10 @@ class CompanionWindow(QWidget):
     def _on_chat_submitted(self, user_text: str):
         # ── YouTube shortcut ─────────────────────────────────────────────────
         if self._try_youtube(user_text):
+            return
+
+        # ── Google Calendar shortcut ─────────────────────────────────────────
+        if self._try_calendar(user_text):
             return
 
         # ── Teach / bookmark shortcuts (checked before remember) ─────────────
@@ -2561,9 +2715,11 @@ class CompanionWindow(QWidget):
         if self._panel is None or not self._panel.isVisible() and not self._panel.isHidden():
             self._panel = None
         if self._panel is None:
-            self._panel = ControlPanel(self._personality, self._settings, MCP_CONFIG)
+            self._panel = ControlPanel(self._personality, self._settings, MCP_CONFIG,
+                                       gcal=self._gcal)
             self._panel.settings_changed.connect(self._on_settings_changed)
             self._panel.breathing_requested.connect(self._breathing_exercise)
+            self._panel.calendar_status_changed.connect(self._on_calendar_status_changed)
             self._panel.destroyed.connect(lambda: setattr(self, "_panel", None))
         self._panel.refresh()
         self._panel.show()
