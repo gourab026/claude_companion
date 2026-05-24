@@ -108,9 +108,24 @@ class GCalClient:
                 if on_done:
                     on_done(True, "Connected!")
             except Exception as exc:
+                err_str = str(exc)
                 log.error("GCal connect failed: %s", exc)
+                # access_denied means the Google account isn't listed as a test user
+                if "access_denied" in err_str or "403" in err_str:
+                    msg = (
+                        "Google blocked the login (Error 403: access_denied).\n\n"
+                        "Your app is in Testing mode. You need to add your Google\n"
+                        "account as a test user:\n\n"
+                        "1. Open Google Cloud Console → APIs & Services\n"
+                        "   → OAuth consent screen\n"
+                        "2. Scroll to \"Test users\" → Add Users\n"
+                        "3. Enter your Gmail address and save\n"
+                        "4. Click Connect again"
+                    )
+                else:
+                    msg = err_str
                 if on_done:
-                    on_done(False, str(exc))
+                    on_done(False, msg)
 
         threading.Thread(target=_flow, daemon=True).start()
 

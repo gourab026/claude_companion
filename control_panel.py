@@ -1357,21 +1357,31 @@ class ControlPanel(QWidget):
             "Step 1 — Click the button below to open Google Cloud Console.\n"
             "Step 2 — Create a project (or pick an existing one).\n"
             "Step 3 — Go to APIs & Services → Library → enable \"Google Calendar API\".\n"
-            "Step 4 — Go to APIs & Services → Credentials → Create Credentials\n"
+            "Step 4 — Go to APIs & Services → OAuth consent screen:\n"
+            "         • Fill in App name and support email, then Save.\n"
+            "         • Scroll to \"Test users\" → Add Users → add your Gmail address.\n"
+            "Step 5 — Go to APIs & Services → Credentials → Create Credentials\n"
             "         → OAuth client ID → Application type: Desktop app → Create.\n"
-            "Step 5 — Click the download icon (↓) next to your new credential.\n"
-            "Step 6 — Click \"Browse\" below to select the downloaded file.\n"
-            "Step 7 — Click \"Connect\" — your browser will open for Google login."
+            "Step 6 — Click the download icon (↓) next to your new credential.\n"
+            "Step 7 — Click \"Browse\" below to select the downloaded file.\n"
+            "Step 8 — Click \"Connect\" — your browser will open for Google login."
         )
         steps.setWordWrap(True)
         steps.setStyleSheet("font-size: 11px; color: #c0b0d8;")
         lo.addWidget(steps)
 
-        open_btn = QPushButton("Open Google Cloud Console")
-        open_btn.clicked.connect(lambda: webbrowser.open(
+        btn_row = QHBoxLayout()
+        open_creds_btn = QPushButton("Open Credentials page")
+        open_creds_btn.clicked.connect(lambda: webbrowser.open(
             "https://console.cloud.google.com/apis/credentials"
         ))
-        lo.addWidget(open_btn)
+        open_consent_btn = QPushButton("Open OAuth Consent screen")
+        open_consent_btn.clicked.connect(lambda: webbrowser.open(
+            "https://console.cloud.google.com/apis/credentials/consent"
+        ))
+        btn_row.addWidget(open_creds_btn)
+        btn_row.addWidget(open_consent_btn)
+        lo.addLayout(btn_row)
 
         browse_row = QHBoxLayout()
         self._gcal_creds_path_lbl = QLabel(f"File: (not selected)")
