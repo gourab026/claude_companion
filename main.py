@@ -792,17 +792,18 @@ class CompanionWindow(QWidget):
         r"(?:add|put)(?:\s+(?:a|an|this))?\s+(?:(?:to\s+)?(?:my\s+)?(?:calendar|schedule)|"
         r"event|meeting|appointment|reminder|task)|"
         r"remind\s+me\s+(?:to\s+|about\s+|of\s+)?|"
-        r"set\s+(?:a\s+)?(?:reminder|alarm)\s*(?:for\s+|to\s+)?|"
+        r"set\s+(?:a\s+)?(?:\w+\s+)?(?:reminder|alarm)\s*(?:for\s+|to\s+|about\s+)?|"  # "set a session reminder for…"
         r"schedule(?:\s+(?:a|an))?\s+|"
         r"create\s+(?:a\s+)?(?:new\s+)?(?:event|meeting|appointment|reminder)(?:\s+for)?\s+"
         r")",
         re.IGNORECASE,
     )
 
-    # Also catches "add X to (my) calendar" anywhere in the message
+    # Also catches "add/put X to/on (my) calendar" anywhere in the message
     _CAL_ADD_TO_CAL = re.compile(
-        r"\badd\b.{1,80}?\bto\s+(?:my\s+)?(?:calendar|schedule)\b"
-        r"|\bput\b.{1,80}?\b(?:on|in)\s+(?:my\s+)?(?:calendar|schedule)\b",
+        r"\badd\b.{1,120}?\bto\s+(?:my\s+)?(?:calendar|schedule)\b"
+        r"|\bput\b.{1,120}?\b(?:on|in)\s+(?:my\s+)?(?:calendar|schedule)\b"
+        r"|\bset\b.{1,80}?\b(?:reminder|alarm)\b",   # "set a X reminder" anywhere
         re.IGNORECASE,
     )
 
@@ -822,13 +823,18 @@ class CompanionWindow(QWidget):
         if self._gcal is None or not self._gcal.is_connected():
             return ""
         return (
-            "\n\nYou have built-in Google Calendar integration. "
-            "When the user asks about their calendar, events, schedule, or wants to add/schedule something, "
-            "DO NOT say you lack calendar access. Instead, tell them to ask Pip directly using natural language. "
-            "Examples they can say: \"what's on my calendar today?\", "
+            "\n\nIMPORTANT — Google Calendar: Pip (the desktop app) has direct Google Calendar "
+            "access and handles all calendar operations natively. You (Claude) cannot add, edit, "
+            "or delete calendar events and MUST NOT pretend or claim that you have done so. "
+            "If the user asks you to add an event, set a reminder, or schedule anything, "
+            "do NOT say \"Done\", \"I've added it\", or anything that implies you acted on the calendar. "
+            "Instead say something like: \"Pip can handle that! Just say: "
+            "'remind me to [thing] [day] at [time]' and Pip will add it to your Google Calendar.\" "
+            "Example phrasings Pip understands: "
             "\"remind me to call John tomorrow at 3pm\", "
-            "\"add dentist appointment on Friday at 10am\", "
-            "\"schedule team meeting next Monday at 2pm\"."
+            "\"add dentist on Friday at 10am\", "
+            "\"schedule team meeting next Monday at 2pm\", "
+            "\"what's on my calendar today?\"."
         )
 
     def _try_calendar(self, text: str) -> bool:
