@@ -42,13 +42,25 @@ def _cp_make_icon(draw_fn, color: str = "#a892ff", size: int = 18) -> QIcon:
     return QIcon(px)
 
 
-def _tab_icon_home(size=18):
+def _tab_icon_home(size=22):
     def draw(p, s):
         m = s / 16
-        p.drawEllipse(int(1*m), int(1*m), int(14*m), int(14*m))
-        p.drawLine(int(8*m), int(7*m), int(8*m), int(12*m))
-        p.setBrush(QBrush(QColor("#a892ff")))
-        p.drawEllipse(int(7*m), int(4*m), int(2*m), int(2*m))
+        # Roof (triangle peak → left eave → right eave)
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        roof = QPolygonF([
+            QPointF(8*m,  1.5*m),
+            QPointF(1*m,  7.5*m),
+            QPointF(15*m, 7.5*m),
+        ])
+        p.drawPolyline(roof)
+        # Left and right walls down from eaves
+        p.drawLine(int(3*m),  int(7.5*m), int(3*m),  int(14.5*m))
+        p.drawLine(int(13*m), int(7.5*m), int(13*m), int(14.5*m))
+        # Floor
+        p.drawLine(int(3*m), int(14.5*m), int(13*m), int(14.5*m))
+        # Door (centered, bottom-anchored)
+        p.drawRoundedRect(int(6*m), int(10*m), int(4*m), int(4.5*m), 1*m, 1*m)
     return _cp_make_icon(draw, "#a892ff", size)
 
 
@@ -70,16 +82,28 @@ def _tab_icon_memory(size=18):
     return _cp_make_icon(draw, "#a892ff", size)
 
 
-def _tab_icon_settings(size=18):
+def _tab_icon_settings(size=22):
+    import math
     def draw(p, s):
         m = s / 16
-        p.drawEllipse(int(5.5*m), int(5.5*m), int(5*m), int(5*m))
-        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
-            p.drawLine(int((8+dx*3)*m), int((8+dy*3)*m),
-                       int((8+dx*5)*m), int((8+dy*5)*m))
-        for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
-            p.drawLine(int((8+dx*2.5)*m), int((8+dy*2.5)*m),
-                       int((8+dx*4)*m), int((8+dy*4)*m))
+        cx, cy, r_outer, r_inner, r_hole = 8*m, 8*m, 7*m, 5*m, 2.5*m
+        teeth = 8
+        from PyQt6.QtGui import QPolygonF
+        from PyQt6.QtCore import QPointF
+        pts = []
+        for i in range(teeth * 2):
+            angle = math.pi / teeth * i - math.pi / 2
+            r = r_outer if i % 2 == 0 else r_inner
+            pts.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        p.setBrush(QBrush(QColor("#a892ff")))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawPolygon(QPolygonF(pts))
+        # Hollow centre
+        p.setBrush(QBrush(QColor("#0a0812")))
+        p.drawEllipse(
+            int(cx - r_hole), int(cy - r_hole),
+            int(r_hole * 2), int(r_hole * 2)
+        )
     return _cp_make_icon(draw, "#a892ff", size)
 
 
@@ -185,35 +209,28 @@ class ControlPanel(QWidget):
                 font-size: 13px;
             }
 
-            /* ── West-side tab bar ── */
+            /* ── Top icon-only tab bar ── */
             QTabWidget::pane {
                 border: 1px solid #1e1830;
                 border-radius: 10px;
                 background: #111020;
-                margin-left: 4px;
+                margin-top: 4px;
             }
             QTabBar {
                 background: #0a0812;
             }
             QTabBar::tab {
                 background: transparent;
-                color: #4a4060;
-                padding: 10px 18px;
+                padding: 8px 20px;
                 border-radius: 8px;
-                margin: 2px 4px;
-                font-size: 13px;
-                font-weight: 500;
-                min-height: 36px;
-                text-align: left;
+                margin: 2px 3px;
+                min-width: 44px;
             }
             QTabBar::tab:selected {
                 background: #1a1530;
-                color: #a892ff;
-                font-weight: 700;
             }
             QTabBar::tab:hover:!selected {
                 background: #141028;
-                color: #7860d4;
             }
 
             /* Inner (memory) tab widget — flat North style */
@@ -445,14 +462,19 @@ class ControlPanel(QWidget):
 
         # ── Build tabs ────────────────────────────────────────────────────────
         self._tabs = QTabWidget()
-        self._tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self._tabs.setIconSize(QSize(18, 18))
+        self._tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self._tabs.setIconSize(QSize(22, 22))
 
-        self._tabs.addTab(self._build_home_tab(),      _tab_icon_home(),      "Home")
-        self._tabs.addTab(self._build_character_tab(), _tab_icon_character(), "Character")
-        self._tabs.addTab(self._build_memory_tab(),    _tab_icon_memory(),    "Memory")
-        self._tabs.addTab(self._build_settings_tab(),  _tab_icon_settings(),  "Settings")
-        self._tabs.addTab(self._build_log_tab(),       _tab_icon_log(),       "Log")
+        # Icon-only tabs — empty strings, tooltips as labels
+        for content, icon, tip in [
+            (self._build_home_tab(),      _tab_icon_home(),      "Home"),
+            (self._build_character_tab(), _tab_icon_character(), "Character"),
+            (self._build_memory_tab(),    _tab_icon_memory(),    "Memory"),
+            (self._build_settings_tab(),  _tab_icon_settings(),  "Settings"),
+            (self._build_log_tab(),       _tab_icon_log(),       "Log"),
+        ]:
+            idx = self._tabs.addTab(content, icon, "")
+            self._tabs.setTabToolTip(idx, tip)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
