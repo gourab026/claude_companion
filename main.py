@@ -431,6 +431,13 @@ class CompanionWindow(QWidget):
 
         self._chat_input = ChatInputWidget()
         self._chat_input.submitted.connect(self._on_chat_submitted)
+        self._chat_input.voice_listening.connect(lambda: self._char.set_state(State.LISTENING))
+        self._chat_input.voice_done.connect(self._on_voice_done)
+        self._chat_input.set_voice_config(
+            enabled=self._settings.value("voice_enabled", True, type=bool),
+            engine=self._settings.value("voice_engine", "google", type=str),
+            language=self._settings.value("voice_language", "en-US", type=str),
+        )
 
         # ── Position ──────────────────────────────────────────────────────────
         screen = QApplication.primaryScreen().geometry()
@@ -1053,6 +1060,16 @@ class CompanionWindow(QWidget):
                 style=THOUGHT, priority=BUBBLE_HIGH,
             )
             self._return_timer.start(3000)
+
+    # ── Voice input ───────────────────────────────────────────────────────────
+
+    def _on_voice_done(self):
+        """Return to IDLE after voice recording finishes (success or error)."""
+        if self._char.state == State.LISTENING:
+            self._char.set_state(State.IDLE)
+
+    def _on_voice_config_changed(self, enabled: bool, engine: str, language: str):
+        self._chat_input.set_voice_config(enabled, engine, language)
 
     # ── YouTube ───────────────────────────────────────────────────────────────
 
@@ -2860,6 +2877,7 @@ class CompanionWindow(QWidget):
             self._panel.settings_changed.connect(self._on_settings_changed)
             self._panel.breathing_requested.connect(self._breathing_exercise)
             self._panel.calendar_status_changed.connect(self._on_calendar_status_changed)
+            self._panel.voice_config_changed.connect(self._on_voice_config_changed)
             self._panel.destroyed.connect(lambda: setattr(self, "_panel", None))
         self._panel.refresh()
         self._panel.show()

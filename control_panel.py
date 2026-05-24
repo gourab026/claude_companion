@@ -185,7 +185,8 @@ def _tab_icon_cosmetics(size=18):
 class ControlPanel(QWidget):
     settings_changed        = pyqtSignal()
     breathing_requested     = pyqtSignal()
-    calendar_status_changed = pyqtSignal(bool)    # True = connected, False = disconnected
+    calendar_status_changed = pyqtSignal(bool)       # True = connected, False = disconnected
+    voice_config_changed    = pyqtSignal(bool, str, str)  # enabled, engine, language
     _gcal_done              = pyqtSignal(bool, str)  # internal: thread → UI
 
     def __init__(self, personality: Personality, settings: QSettings,
@@ -480,6 +481,7 @@ class ControlPanel(QWidget):
             "settings": 6, "model": 6, "idle": 6, "position": 6,
             "log file": 6, "sound": 6, "interval": 6,
             "calendar": 6, "google calendar": 6, "gcal": 6,
+            "voice": 6, "microphone": 6, "speech": 6, "mic": 6, "whisper": 6,
             # Log
             "log": 7, "error": 7, "debug": 7, "warning": 7,
         }
@@ -1262,6 +1264,46 @@ class ControlPanel(QWidget):
         slo.addWidget(self._bubble_sound_cb)
         lo.addWidget(sound_box)
 
+        # ── Voice Input ───────────────────────────────────────────────────────
+        voice_box = QGroupBox("Voice Input")
+        vlo = QVBoxLayout(voice_box)
+
+        self._voice_enabled_cb = QCheckBox("Enable microphone button in chat")
+        self._voice_enabled_cb.setChecked(self._s.value("voice_enabled", True, type=bool))
+        vlo.addWidget(self._voice_enabled_cb)
+
+        vf = QFormLayout()
+        self._voice_engine_combo = QComboBox()
+        self._voice_engine_combo.addItems(["google", "whisper"])
+        engine = self._s.value("voice_engine", "google", type=str)
+        self._voice_engine_combo.setCurrentIndex(0 if engine == "google" else 1)
+        self._voice_engine_combo.setToolTip(
+            "google: uses Google Speech API (requires internet)\n"
+            "whisper: runs locally (requires: pip install openai-whisper)"
+        )
+        vf.addRow("Engine:", self._voice_engine_combo)
+
+        self._voice_lang_combo = QComboBox()
+        self._voice_lang_combo.addItems([
+            "en-US", "en-GB", "en-AU",
+            "fr-FR", "de-DE", "es-ES", "pt-BR",
+            "ja-JP", "zh-CN", "hi-IN",
+        ])
+        lang = self._s.value("voice_language", "en-US", type=str)
+        idx = self._voice_lang_combo.findText(lang)
+        self._voice_lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        vf.addRow("Language:", self._voice_lang_combo)
+        vlo.addLayout(vf)
+
+        install_lbl = QLabel(
+            "Required: pip install SpeechRecognition pyaudio\n"
+            "Offline (whisper): pip install openai-whisper"
+        )
+        install_lbl.setStyleSheet("color: #5a4f70; font-size: 10px;")
+        vlo.addWidget(install_lbl)
+
+        lo.addWidget(voice_box)
+
         # ── Google Calendar ───────────────────────────────────────────────────
         gcal_box = QGroupBox("Google Calendar")
         gcal_lo  = QVBoxLayout(gcal_box)
@@ -1682,7 +1724,14 @@ class ControlPanel(QWidget):
         self._s.setValue("idle_max",     self._idle_max.value())
         self._s.setValue("deep_watch",   self._deep_watch_cb.isChecked())
         self._s.setValue("bubble_sound", self._bubble_sound_cb.isChecked())
+        v_enabled  = self._voice_enabled_cb.isChecked()
+        v_engine   = self._voice_engine_combo.currentText()
+        v_language = self._voice_lang_combo.currentText()
+        self._s.setValue("voice_enabled",  v_enabled)
+        self._s.setValue("voice_engine",   v_engine)
+        self._s.setValue("voice_language", v_language)
         self.settings_changed.emit()
+        self.voice_config_changed.emit(v_enabled, v_engine, v_language)
         QMessageBox.information(self, "Saved", "Settings saved!")
 
     def _reset_position(self):

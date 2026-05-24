@@ -62,6 +62,7 @@ class State(Enum):
     WAVING     = auto()
     EXCITED    = auto()   # NEW: energetic bounce, sparkles, arms up
     STRETCHING = auto()   # NEW: idle variant — tall body, arms up, squinting
+    LISTENING  = auto()   # voice input active — attentive lean, ear-cup arm
 
 
 FRAME_LIMITS = {
@@ -76,6 +77,7 @@ FRAME_LIMITS = {
     State.WAVING:     4,
     State.EXCITED:    6,   # fast cycle
     State.STRETCHING: 8,   # plays over ~1s, auto-returns
+    State.LISTENING:  4,   # slow attentive nod
 }
 
 # Subtle body-color tint targets per state (R, G, B). Base BODY = (110, 95, 210).
@@ -91,6 +93,7 @@ _STATE_TINTS: dict[State, tuple[int, int, int]] = {
     State.WAVING:      (118, 108, 218),   # friendly blue-purple
     State.EXCITED:     (160, 100, 230),   # bright warm violet
     State.STRETCHING:  (105,  92, 208),   # near-idle, slightly dimmer
+    State.LISTENING:   ( 80, 170, 200),   # teal-blue — open, receptive
 }
 
 # Ratios to derive DARK and LIGHT variants from the live body color.
@@ -209,6 +212,8 @@ class CharacterRenderer:
             xoff = 0
         elif s == State.STRETCHING:
             bob, xoff = -2, 0   # slightly taller feel (shift up)
+        elif s == State.LISTENING:
+            bob, xoff = [0, -1, -1, 0][f % 4], 0   # slow attentive nod
         else:
             bob, xoff = 0, 0
 
@@ -339,6 +344,12 @@ class CharacterRenderer:
             p.fillRect(bx + 0 * PX,  by + 1 * PX, 2 * PX, 2 * PX, arm_c)
             p.fillRect(bx + 20 * PX, by + 1 * PX, 2 * PX, 2 * PX, arm_c)
 
+        elif s == State.LISTENING:
+            # Left arm: static nub; right arm raised to "cup the ear"
+            p.fillRect(bx + 1 * PX,  by + 6 * PX, 2 * PX, 2 * PX, dark_arm)
+            ry = 3 if f % 2 == 0 else 2   # slight wave on the raised arm
+            p.fillRect(bx + 20 * PX, by + ry * PX, 2 * PX, 2 * PX, arm_c)
+
         else:
             # Default: small nubs at sides
             p.fillRect(bx + 1 * PX,  by + 6 * PX, 2 * PX, 2 * PX, dark_arm)
@@ -362,6 +373,9 @@ class CharacterRenderer:
         elif s == State.SURPRISED:
             left_y  = 0
             right_y = 0   # both very high (same as happy but eyes will be wide)
+        elif s == State.LISTENING:
+            left_y  = 1   # slightly raised — attentive
+            right_y = 1
 
         # Left eyebrow (2px wide, 1px tall)
         p.fillRect(bx + 5 * PX, by + left_y  * PX, 2 * PX, PX, BROW)
@@ -415,6 +429,14 @@ class CharacterRenderer:
             for ex in [3, 11]:
                 p.fillRect(bx + ex * PX, by + 3 * PX, 5 * PX, 3 * PX, WHITE)
                 p.fillRect(bx + (ex + 1) * PX, by + 3 * PX, 3 * PX, 3 * PX, PUPIL)
+                p.fillRect(bx + (ex + 1) * PX, by + 3 * PX, PX, PX, GLINT)
+            return
+
+        # LISTENING — wide-open eyes looking slightly up (attentive)
+        if s == State.LISTENING:
+            for ex in [4, 12]:
+                p.fillRect(bx + ex * PX,       by + 3 * PX, 4 * PX, 3 * PX, WHITE)
+                p.fillRect(bx + (ex + 1) * PX, by + 3 * PX, 2 * PX, 2 * PX, PUPIL)
                 p.fillRect(bx + (ex + 1) * PX, by + 3 * PX, PX, PX, GLINT)
             return
 
@@ -486,6 +508,11 @@ class CharacterRenderer:
         elif s == State.STRETCHING:
             # Neutral small line
             self._r(p, bx, by, 8,  10, 4, 1, MOUTH)
+
+        elif s == State.LISTENING:
+            # Slightly open "oh" — attentive, about to respond
+            self._r(p, bx, by, 8,  10, 4, 2, MOUTH)
+            self._r(p, bx, by, 9,  10, 2, 1, WHITE)
 
         else:
             # IDLE / THINKING / etc: small neutral line with corners
@@ -568,6 +595,20 @@ class CharacterRenderer:
             for iy in [2, 5]:
                 p.fillRect(bx - 2 * PX, by + iy * PX, 2 * PX, PX, SHADE)
                 p.fillRect(bx + 22 * PX, by + iy * PX, 2 * PX, PX, SHADE)
+
+        elif s == State.LISTENING:
+            # Sound-wave arcs on the right side (near the raised arm / "ear")
+            wave_c = QColor(120, 220, 255, 180)
+            # Three arcs, each one pixel taller, animating with frame
+            visible = (f % 4) + 1   # 1, 2, 3, 4 arcs visible in sequence
+            for i, (wx, wy, ww, wh) in enumerate([
+                (22, 4, 2, 2),   # innermost arc
+                (24, 3, 2, 4),   # middle arc
+                (26, 2, 2, 6),   # outermost arc
+            ]):
+                if i < visible:
+                    p.fillRect(bx + wx * PX, by + wy * PX, ww * PX, PX, wave_c)
+                    p.fillRect(bx + wx * PX, by + (wy + wh) * PX, ww * PX, PX, wave_c)
 
     # ── Idle variant picker ───────────────────────────────────────────────────
 
