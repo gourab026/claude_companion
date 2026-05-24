@@ -777,7 +777,7 @@ class CompanionWindow(QWidget):
 
     # ── Google Calendar ───────────────────────────────────────────────────────
 
-    # Patterns that read calendar data
+    # Detects intent to READ calendar
     _CAL_READ_PATTERNS = re.compile(
         r"(?:what(?:'s| is)(?: on)? my (?:calendar|schedule|agenda|events?)|"
         r"show(?: my)? (?:calendar|schedule|agenda|events?)|"
@@ -788,26 +788,36 @@ class CompanionWindow(QWidget):
         re.IGNORECASE,
     )
 
-    # Patterns that create a calendar event: "add event: title | date time | end time"
+    # Detects intent to ADD an event/reminder (broad, natural language)
     _CAL_ADD_PATTERNS = re.compile(
-        r"^(?:add (?:to )?(?:calendar|event|meeting)|schedule|create (?:an? )?event):\s*(.+)$",
+        r"^(?:"
+        r"(?:add|put)(?:\s+(?:a|an))?\s+(?:(?:to\s+)?(?:my\s+)?(?:calendar|schedule)|"
+        r"event|meeting|appointment|reminder|task)|"
+        r"remind\s+me\s+(?:to\s+|about\s+|of\s+)?|"
+        r"set\s+(?:a\s+)?(?:reminder|alarm)\s*(?:for\s+|to\s+)?|"
+        r"schedule(?:\s+(?:a|an))?\s+|"
+        r"create\s+(?:a\s+)?(?:new\s+)?(?:event|meeting|appointment|reminder)(?:\s+for)?\s+"
+        r")",
+        re.IGNORECASE,
+    )
+
+    # Date/time markers used to split title from datetime in natural language
+    _CAL_DATETIME_SPLIT = re.compile(
+        r"\s+(?:at|on|for|this|next|tomorrow|today|in\s+\d)"
+        r"|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
+        r"|\b\d{4}-\d{2}-\d{2}\b",
         re.IGNORECASE,
     )
 
     def _try_calendar(self, text: str) -> bool:
-        """
-        Return True if the text is a calendar command.
-        Handles read (show events) and write (add event) commands.
-        Format for adding: "add event: Title | 2026-05-25 14:00 | 2026-05-25 15:00"
-        """
+        """Return True if the text is a calendar command and handle it."""
         if self._gcal is None:
             return False
 
         stripped = text.strip()
 
-        # ── Add event ─────────────────────────────────────────────────────────
-        m_add = self._CAL_ADD_PATTERNS.match(stripped)
-        if m_add:
+        # ── Add event / reminder ──────────────────────────────────────────────
+        if self._CAL_ADD_PATTERNS.match(stripped):
             if not self._gcal.is_connected():
                 self._show_bubble(
                     "Google Calendar isn't connected yet.\n"
@@ -815,7 +825,7 @@ class CompanionWindow(QWidget):
                     style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
                 )
                 return True
-            self._do_calendar_add(m_add.group(1).strip())
+            self._do_calendar_add(stripped)
             return True
 
         # ── Read events ───────────────────────────────────────────────────────
@@ -835,60 +845,144 @@ class CompanionWindow(QWidget):
     def _do_calendar_read(self, user_text: str):
         """Fetch and display upcoming events in a background thread."""
         self._char.set_state(State.THINKING)
-
-        days = 1
         lower = user_text.lower()
-        if "week" in lower:
-            days = 7
-        elif "tomorrow" in lower:
-            days = 2
-
+        days = 7 if "week" in lower else (2 if "tomorrow" in lower else 1)
         label = "Today" if days == 1 else ("Tomorrow" if days == 2 else "This week")
 
         def _fetch():
             events = self._gcal.get_events(days=days)
             from gcal_client import GCalClient as _GCC
-            summary = _GCC.format_events_short(events, label=label)
-            self._cal_result_ready.emit(summary)
+            self._cal_result_ready.emit(_GCC.format_events_short(events, label=label))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-    def _do_calendar_add(self, spec: str):
+    # ── Natural language date/time parser ─────────────────────────────────────
+
+    @staticmethod
+    def _parse_cal_datetime(text: str):
         """
-        Parse and create a calendar event.
-        spec format: "Title | YYYY-MM-DD HH:MM | YYYY-MM-DD HH:MM"
-        End time is optional (defaults to start + 1 hour).
+        Extract (start_datetime, end_datetime) from a natural language string.
+        Understands: today, tomorrow, weekday names, "at Xpm/X:Yam", YYYY-MM-DD.
+        Returns (start_dt, end_dt) with local timezone, or raises ValueError.
         """
-        parts = [p.strip() for p in spec.split("|")]
-        if len(parts) < 2:
+        from datetime import timezone as _tz, timedelta as _td, date as _date
+        local_tz = datetime.now(_tz.utc).astimezone().tzinfo
+        now      = datetime.now(local_tz)
+        lower    = text.lower()
+
+        # ── Determine the calendar date ───────────────────────────────────────
+        cal_date = now.date()
+        if re.search(r'\btomorrow\b', lower):
+            cal_date = (now + _td(days=1)).date()
+        elif re.search(r'\btoday\b', lower):
+            cal_date = now.date()
+        else:
+            weekdays = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+            for i, name in enumerate(weekdays):
+                if re.search(r'\b' + name + r'\b', lower):
+                    ahead = (i - now.weekday()) % 7 or 7
+                    cal_date = (now + _td(days=ahead)).date()
+                    break
+            else:
+                m = re.search(r'(\d{4})-(\d{2})-(\d{2})', text)
+                if m:
+                    cal_date = _date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+        # ── Determine the time ────────────────────────────────────────────────
+        hour, minute = 9, 0   # sensible default
+        # Match "3pm", "3:30pm", "15:00", "3 pm", "at 3"
+        time_m = re.search(
+            r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b'   # 3pm / 3:30pm
+            r'|\b(\d{1,2}):(\d{2})\b'                  # 15:00 / 3:30
+            r'|\bat\s+(\d{1,2})\b',                     # at 3
+            lower,
+        )
+        if time_m:
+            if time_m.group(1) is not None:             # Xpm form
+                hour   = int(time_m.group(1))
+                minute = int(time_m.group(2) or 0)
+                mer    = time_m.group(3) or ""
+                if mer == "pm" and hour != 12:
+                    hour += 12
+                elif mer == "am" and hour == 12:
+                    hour = 0
+            elif time_m.group(4) is not None:           # HH:MM form
+                hour   = int(time_m.group(4))
+                minute = int(time_m.group(5))
+            elif time_m.group(6) is not None:           # "at N" form
+                hour = int(time_m.group(6))
+                if hour < 7:                            # "at 3" → assume pm
+                    hour += 12
+
+        start_dt = datetime(cal_date.year, cal_date.month, cal_date.day,
+                            hour, minute, tzinfo=local_tz)
+        end_dt   = start_dt + _td(hours=1)
+        return start_dt, end_dt
+
+    @staticmethod
+    def _extract_cal_title(text: str) -> str:
+        """Strip command prefix and datetime tail, return the event title."""
+        t = text.strip()
+
+        # Step 1: Strip the verb/command word(s) — always
+        t = re.sub(r'^remind\s+me\s+(?:to\s+|about\s+|of\s+)?', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'^set\s+(?:a\s+)?(?:reminder|alarm)\s*(?:for\s+|to\s+)?', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'^create\s+(?:a\s+)?(?:new\s+)?', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'^schedule\s+', '', t, flags=re.IGNORECASE)
+        t = re.sub(r'^(?:add|put)\s+', '', t, flags=re.IGNORECASE)
+        t = t.strip()
+
+        # Step 2: Strip optional article
+        t = re.sub(r'^(?:a|an)\s+', '', t, flags=re.IGNORECASE).strip()
+
+        # Step 3: Strip "to/into/on (my) calendar" — both as prefix ("add to calendar: X")
+        #         and suffix ("put X on my calendar")
+        t = re.sub(r'^(?:to|into|on)\s+(?:my\s+)?(?:calendar|schedule)\s*:?\s*', '', t, flags=re.IGNORECASE).strip()
+        t = re.sub(r'\s+(?:to|into|on)\s+(?:my\s+)?(?:calendar|schedule)$', '', t, flags=re.IGNORECASE).strip()
+
+        # Step 4: Strip standalone type prefix words (reminder, event, etc.) only when
+        # followed by "for/to/:" or end-of-string — not when part of a noun phrase ("meeting with...")
+        t = re.sub(r'^(?:reminder|alarm)\s*(?:for\s+|to\s+|:\s*)?', '', t, flags=re.IGNORECASE).strip()
+        t = re.sub(r'^(?:event|task)\s*(?::\s*|(?=\s*$)|\s+for\s+)', '', t, flags=re.IGNORECASE).strip()
+        # "meeting/appointment" stay if followed by "with/about" (they're part of the title)
+        t = re.sub(r'^(?:meeting|appointment)\s*(?::\s*|(?=\s*$)|\s+for\s+)', '', t, flags=re.IGNORECASE).strip()
+        t = re.sub(r'^for\s+', '', t, flags=re.IGNORECASE).strip()
+
+        # Step 5: Strip trailing datetime: "tomorrow at 3pm", "on Monday", "by Friday", etc.
+        t = re.sub(
+            r'\s+(?:at|on|by|this|next)\s+.*$'
+            r'|\s+tomorrow\b.*$'
+            r'|\s+today\b.*$'
+            r'|\s+\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*$'
+            r'|\s+\d{4}-\d{2}-\d{2}.*$',
+            '', t, flags=re.IGNORECASE,
+        ).strip()
+
+        return t or text.strip()
+
+    def _do_calendar_add(self, user_text: str):
+        """Parse a natural-language add request and create the event."""
+        title = self._extract_cal_title(user_text)
+
+        try:
+            start_dt, end_dt = self._parse_cal_datetime(user_text)
+        except Exception:
             self._show_bubble(
-                "To add an event, use:\nadd event: Title | YYYY-MM-DD HH:MM | YYYY-MM-DD HH:MM",
+                f"Got it — \"{title}\"\nWhen is it? Tell me the date and time\n"
+                f"e.g. \"tomorrow at 3pm\" or \"Monday at 10am\"",
                 style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
             )
             return
 
-        title = parts[0]
-        try:
-            from datetime import timezone as _tz, timedelta as _td
-            local_tz = datetime.now(_tz.utc).astimezone().tzinfo
-            start_dt = datetime.strptime(parts[1], "%Y-%m-%d %H:%M").replace(tzinfo=local_tz)
-            end_dt = (datetime.strptime(parts[2], "%Y-%m-%d %H:%M").replace(tzinfo=local_tz)
-                      if len(parts) >= 3 else start_dt + _td(hours=1))
-            start_iso = start_dt.isoformat()
-            end_iso   = end_dt.isoformat()
-        except ValueError:
-            self._show_bubble(
-                "Couldn't parse the date/time.\nUse format: YYYY-MM-DD HH:MM",
-                style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
-            )
-            return
+        start_iso  = start_dt.isoformat()
+        end_iso    = end_dt.isoformat()
+        time_label = start_dt.strftime("%-d %b at %-I:%M %p")
 
         self._char.set_state(State.THINKING)
-        start_label = parts[1]
 
         def _create():
             event = self._gcal.create_event(title, start_iso, end_iso)
-            msg = (f"Added to calendar!\n\"{title}\"\n{start_label}"
+            msg = (f"Added to your calendar!\n\"{title}\"\n{time_label}"
                    if event else "Couldn't create the event. Check the log for details.")
             self._cal_result_ready.emit(msg)
 
