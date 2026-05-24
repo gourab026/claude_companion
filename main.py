@@ -777,6 +777,35 @@ class CompanionWindow(QWidget):
 
     # ── Google Calendar ───────────────────────────────────────────────────────
 
+    # Preamble words users say before the actual command
+    _CAL_PREAMBLE = re.compile(
+        r"^(?:hey|hi|please|plz|can you|could you|would you|"
+        r"i(?:'d| would)? (?:like|want|need)(?: you)? to|"
+        r"i need(?: a)?|i want(?: a)?|"
+        r"help me|pip[,:]?)\s+",
+        re.IGNORECASE,
+    )
+
+    # Core add-intent verbs/phrases (checked after preamble is stripped)
+    _CAL_ADD_PATTERNS = re.compile(
+        r"^(?:"
+        r"(?:add|put)(?:\s+(?:a|an|this))?\s+(?:(?:to\s+)?(?:my\s+)?(?:calendar|schedule)|"
+        r"event|meeting|appointment|reminder|task)|"
+        r"remind\s+me\s+(?:to\s+|about\s+|of\s+)?|"
+        r"set\s+(?:a\s+)?(?:reminder|alarm)\s*(?:for\s+|to\s+)?|"
+        r"schedule(?:\s+(?:a|an))?\s+|"
+        r"create\s+(?:a\s+)?(?:new\s+)?(?:event|meeting|appointment|reminder)(?:\s+for)?\s+"
+        r")",
+        re.IGNORECASE,
+    )
+
+    # Also catches "add X to (my) calendar" anywhere in the message
+    _CAL_ADD_TO_CAL = re.compile(
+        r"\badd\b.{1,80}?\bto\s+(?:my\s+)?(?:calendar|schedule)\b"
+        r"|\bput\b.{1,80}?\b(?:on|in)\s+(?:my\s+)?(?:calendar|schedule)\b",
+        re.IGNORECASE,
+    )
+
     # Detects intent to READ calendar
     _CAL_READ_PATTERNS = re.compile(
         r"(?:what(?:'s| is)(?: on)? my (?:calendar|schedule|agenda|events?)|"
@@ -788,26 +817,19 @@ class CompanionWindow(QWidget):
         re.IGNORECASE,
     )
 
-    # Detects intent to ADD an event/reminder (broad, natural language)
-    _CAL_ADD_PATTERNS = re.compile(
-        r"^(?:"
-        r"(?:add|put)(?:\s+(?:a|an))?\s+(?:(?:to\s+)?(?:my\s+)?(?:calendar|schedule)|"
-        r"event|meeting|appointment|reminder|task)|"
-        r"remind\s+me\s+(?:to\s+|about\s+|of\s+)?|"
-        r"set\s+(?:a\s+)?(?:reminder|alarm)\s*(?:for\s+|to\s+)?|"
-        r"schedule(?:\s+(?:a|an))?\s+|"
-        r"create\s+(?:a\s+)?(?:new\s+)?(?:event|meeting|appointment|reminder)(?:\s+for)?\s+"
-        r")",
-        re.IGNORECASE,
-    )
-
-    # Date/time markers used to split title from datetime in natural language
-    _CAL_DATETIME_SPLIT = re.compile(
-        r"\s+(?:at|on|for|this|next|tomorrow|today|in\s+\d)"
-        r"|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
-        r"|\b\d{4}-\d{2}-\d{2}\b",
-        re.IGNORECASE,
-    )
+    def _gcal_system_prompt_addon(self) -> str:
+        """Inject calendar awareness into Claude's system prompt when gcal is active."""
+        if self._gcal is None or not self._gcal.is_connected():
+            return ""
+        return (
+            "\n\nYou have built-in Google Calendar integration. "
+            "When the user asks about their calendar, events, schedule, or wants to add/schedule something, "
+            "DO NOT say you lack calendar access. Instead, tell them to ask Pip directly using natural language. "
+            "Examples they can say: \"what's on my calendar today?\", "
+            "\"remind me to call John tomorrow at 3pm\", "
+            "\"add dentist appointment on Friday at 10am\", "
+            "\"schedule team meeting next Monday at 2pm\"."
+        )
 
     def _try_calendar(self, text: str) -> bool:
         """Return True if the text is a calendar command and handle it."""
@@ -816,16 +838,27 @@ class CompanionWindow(QWidget):
 
         stripped = text.strip()
 
+        # Strip common preamble (run until stable — handles "hey pip, remind me…")
+        core = stripped
+        while True:
+            trimmed = self._CAL_PREAMBLE.sub("", core).strip()
+            if trimmed == core:
+                break
+            core = trimmed
+
+        def _not_connected_bubble():
+            self._show_bubble(
+                "Google Calendar isn't connected yet.\n"
+                "Go to Settings → Google Calendar to connect.",
+                style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
+            )
+
         # ── Add event / reminder ──────────────────────────────────────────────
-        if self._CAL_ADD_PATTERNS.match(stripped):
+        if self._CAL_ADD_PATTERNS.match(core) or self._CAL_ADD_TO_CAL.search(stripped):
             if not self._gcal.is_connected():
-                self._show_bubble(
-                    "Google Calendar isn't connected yet.\n"
-                    "Go to Settings → Google Calendar to connect.",
-                    style=THOUGHT, priority=BUBBLE_HIGH, interactive=True,
-                )
+                _not_connected_bubble()
                 return True
-            self._do_calendar_add(stripped)
+            self._do_calendar_add(stripped)   # pass full text so parser sees all words
             return True
 
         # ── Read events ───────────────────────────────────────────────────────
@@ -962,10 +995,17 @@ class CompanionWindow(QWidget):
 
     def _do_calendar_add(self, user_text: str):
         """Parse a natural-language add request and create the event."""
-        title = self._extract_cal_title(user_text)
+        # Strip conversational preamble (loop handles "hey pip, remind me…")
+        core = user_text.strip()
+        while True:
+            trimmed = self._CAL_PREAMBLE.sub("", core).strip()
+            if trimmed == core:
+                break
+            core = trimmed
+        title = self._extract_cal_title(core)
 
         try:
-            start_dt, end_dt = self._parse_cal_datetime(user_text)
+            start_dt, end_dt = self._parse_cal_datetime(core)
         except Exception:
             self._show_bubble(
                 f"Got it — \"{title}\"\nWhen is it? Tell me the date and time\n"
@@ -1123,7 +1163,7 @@ class CompanionWindow(QWidget):
         self._call_start = time.time()
         self._worker = ClaudeWorker(
             full_prompt,
-            self._personality.get_system_prompt(),
+            self._personality.get_system_prompt() + self._gcal_system_prompt_addon(),
             model=self._settings.value("model", "claude-sonnet-4-6"),
             allowed_tools=allowed or None,
             mcp_config=mcp_path,
